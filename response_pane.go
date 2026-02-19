@@ -40,10 +40,10 @@ func (m model) viewResponse(mainWidth, height int) string {
 	}
 	tabBar := bodyTab + " " + headersTab
 
-	// Pick content based on active tab
-	content := m.response
+	// Is this stupid to render the styles twice or okay?
+	content := responseStyle.Render(m.response)
 	if m.responseTab == responseTabHeaders {
-		content = m.responseHeaders
+		content = responseStyle.Render(m.responseHeaders)
 	}
 
 	// Truncate to fit

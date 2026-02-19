@@ -34,7 +34,7 @@ var (
 				Width(7)
 
 	responseStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("252"))
+			Foreground(lipgloss.Color("252")).PaddingTop(1).PaddingLeft(1)
 
 	helpStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("241"))
