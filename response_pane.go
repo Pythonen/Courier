@@ -1,9 +1,5 @@
 package main
 
-import (
-	"strings"
-)
-
 // responseTab tracks which tab is active in the response pane.
 type responseTab int
 
@@ -40,25 +36,16 @@ func (m model) viewResponse(mainWidth, height int) string {
 	}
 	tabBar := bodyTab + " " + headersTab
 
-	// Is this stupid to render the styles twice or okay?
-	content := responseStyle.Render(m.response)
+	m.response.Width = mainWidth - 2
+	m.response.Height = height - 3
+	content := m.response.View()
+	content = responseStyle.Render(content)
 	if m.responseTab == responseTabHeaders {
 		content = responseStyle.Render(m.responseHeaders)
 	}
 
-	// Truncate to fit
-	lines := strings.Split(content, "\n")
-	maxLines := height - 4 // room for tab bar + border
-	if maxLines < 1 {
-		maxLines = 1
-	}
-	if len(lines) > maxLines {
-		lines = lines[:maxLines]
-	}
-	text := strings.Join(lines, "\n")
-
 	return border.
 		Width(mainWidth).
 		Height(height).
-		Render(tabBar + "\n" + text)
+		Render(tabBar + "\n" + content)
 }

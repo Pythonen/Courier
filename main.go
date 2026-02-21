@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -53,11 +54,11 @@ type model struct {
 	urlInput        textinput.Model
 	methodIdx       int
 	bodyInput       textarea.Model
-	response        string
 	responseHeaders string
 	responseTab     responseTab
 	history         []historyItem
 	historyPos      int
+	response        viewport.Model
 
 	focus  pane
 	keymap keymap
@@ -79,7 +80,7 @@ func newModel() model {
 	m := model{
 		urlInput:        ti,
 		bodyInput:       ta,
-		response:        "Send a request to see the response here.",
+		response:        viewport.New(0, 0),
 		responseHeaders: "",
 		history:         []historyItem{},
 		focus:           paneURL,
@@ -136,7 +137,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keymap.send):
 			method := methods[m.methodIdx]
 			url := m.urlInput.Value()
-			m.response = fmt.Sprintf("Sending %s %s ...", method, url)
+			// m.response =
+			m.response.SetContent(fmt.Sprintf("Sending %s %s ...", method, url))
 			if url != "" {
 				if method == "GET" {
 					resp, err := http.Get(url)
@@ -148,7 +150,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						log.Fatalln(err)
 					}
 
-					m.response = formatResponseBody(body, resp.Header.Get("Content-Type"))
+					m.response.SetContent(formatResponseBody(body, resp.Header.Get("Content-Type")))
 					m.responseHeaders = formatHeaders(resp.Header)
 					m.history = append([]historyItem{{method: method, url: url}}, m.history...)
 				}
@@ -168,6 +170,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.handleHistoryKeys(msg.String())
 			case paneResponse:
 				m.handleResponseKeys(msg.String())
+				var cmd tea.Cmd
+				m.response, cmd = m.response.Update(msg)
+				cmds = append(cmds, cmd)
 			}
 		}
 
