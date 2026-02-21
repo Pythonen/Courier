@@ -52,7 +52,7 @@ type model struct {
 	urlInput        textinput.Model
 	methodIdx       int
 	bodyInput       textarea.Model
-	responseHeaders string
+	responseHeaders viewport.Model
 	responseTab     responseTab
 	history         []historyItem
 	historyPos      int
@@ -79,7 +79,7 @@ func newModel() model {
 		urlInput:        ti,
 		bodyInput:       ta,
 		response:        viewport.New(0, 0),
-		responseHeaders: "",
+		responseHeaders: viewport.New(0, 0),
 		history:         []historyItem{},
 		focus:           paneURL,
 		help:            help.New(),
@@ -121,7 +121,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case responseMsg:
 		m.response.SetContent(msg.responseBody)
-		m.responseHeaders = msg.responseHeaders
+		m.responseHeaders.SetContent(msg.responseHeaders)
 
 	case tea.KeyMsg:
 		switch {
@@ -162,6 +162,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.handleResponseKeys(msg.String())
 				var cmd tea.Cmd
 				m.response, cmd = m.response.Update(msg)
+				cmds = append(cmds, cmd)
+
+				m.responseHeaders, cmd = m.responseHeaders.Update(msg)
 				cmds = append(cmds, cmd)
 			}
 		}
@@ -262,7 +265,7 @@ func (m model) View() string {
 	return layout + "\n" + helpView
 }
 
-// formatHeaders turns http.Header into a readable multi-line string.
+// TODO: We have to either wrap the lines or make the viewport scrollable sideways
 func formatHeaders(h http.Header) string {
 	if len(h) == 0 {
 		return "(no headers)"

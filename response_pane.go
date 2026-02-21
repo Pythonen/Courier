@@ -38,10 +38,13 @@ func (m model) viewResponse(mainWidth, height int) string {
 
 	m.response.Width = mainWidth - 2
 	m.response.Height = height - 3
+	m.responseHeaders.Width = mainWidth - 2
+	m.responseHeaders.Height = height - 3
 	content := m.response.View()
 	content = responseStyle.Render(content)
 	if m.responseTab == responseTabHeaders {
-		content = responseStyle.Render(m.responseHeaders)
+		content = m.responseHeaders.View()
+		content = responseStyle.Render(content)
 	}
 
 	return border.

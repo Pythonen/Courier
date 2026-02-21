@@ -12,8 +12,7 @@ import (
 	"golang.org/x/net/html"
 )
 
-// formatResponseBody pretty-prints and syntax-highlights the response body
-// based on the Content-Type. Returns the highlighted string.
+// TODO: We have to either wrap the lines or make the viewport scrollable sideways
 func formatResponseBody(body []byte, contentType string) string {
 	// Strip charset params: "text/html; charset=utf-8" → "text/html"
 	if i := strings.Index(contentType, ";"); i != -1 {

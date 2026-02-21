@@ -37,7 +37,7 @@ var (
 			Foreground(lipgloss.Color("252")).PaddingTop(1).PaddingLeft(1)
 
 	helpStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241"))
+			Foreground(lipgloss.Color("241")).PaddingLeft(1)
 
 	// Response pane tab styles
 	activeTabStyle = lipgloss.NewStyle().
