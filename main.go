@@ -2,8 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io"
-	"log"
 	"net/http"
 	"os"
 	"sort"
@@ -120,6 +118,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+
+	case responseMsg:
+		m.response.SetContent(msg.responseBody)
+		m.responseHeaders = msg.responseHeaders
+
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, m.keymap.quit):
@@ -137,23 +140,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keymap.send):
 			method := methods[m.methodIdx]
 			url := m.urlInput.Value()
-			// m.response =
-			m.response.SetContent(fmt.Sprintf("Sending %s %s ...", method, url))
 			if url != "" {
-				if method == "GET" {
-					resp, err := http.Get(url)
-					if err != nil {
-						log.Fatalln("Something went wrong", err)
-					}
-					body, err := io.ReadAll(resp.Body)
-					if err != nil {
-						log.Fatalln(err)
-					}
-
-					m.response.SetContent(formatResponseBody(body, resp.Header.Get("Content-Type")))
-					m.responseHeaders = formatHeaders(resp.Header)
-					m.history = append([]historyItem{{method: method, url: url}}, m.history...)
-				}
+				m.response.SetContent(fmt.Sprintf("Sending request %s %s ...", method, url))
+				m.history = append([]historyItem{{method: method, url: url}}, m.history...)
+				return m, m.DoRequest()
 			}
 
 		default:
