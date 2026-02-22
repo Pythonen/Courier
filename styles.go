@@ -23,7 +23,7 @@ var (
 
 	labelStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("99"))
+			Foreground(lipgloss.Color("99")).PaddingLeft(1)
 
 	historyItemStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("252"))

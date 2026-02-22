@@ -28,7 +28,7 @@ type pane int
 
 const (
 	paneURL pane = iota
-	paneBody
+	paneRequest
 	paneResponse
 	paneHistory
 	paneCount // sentinel for wrapping
@@ -54,6 +54,7 @@ type model struct {
 	bodyInput       textarea.Model
 	responseHeaders viewport.Model
 	responseTab     responseTab
+	requestTab      requestTab
 	history         []historyItem
 	historyPos      int
 	response        viewport.Model
@@ -152,9 +153,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				var cmd tea.Cmd
 				m.urlInput, cmd = m.urlInput.Update(msg)
 				cmds = append(cmds, cmd)
-			case paneBody:
+			case paneRequest:
 				var cmd tea.Cmd
 				m.bodyInput, cmd = m.bodyInput.Update(msg)
+				m.handleRequestKeys(msg.String())
 				cmds = append(cmds, cmd)
 			case paneHistory:
 				m.handleHistoryKeys(msg.String())
@@ -182,7 +184,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.urlInput, cmd = m.urlInput.Update(msg)
 			cmds = append(cmds, cmd)
 		}
-		if m.focus == paneBody {
+		if m.focus == paneRequest {
 			var cmd tea.Cmd
 			m.bodyInput, cmd = m.bodyInput.Update(msg)
 			cmds = append(cmds, cmd)
@@ -199,7 +201,7 @@ func (m *model) setFocus(p pane) {
 	} else {
 		m.urlInput.Blur()
 	}
-	if p == paneBody {
+	if p == paneRequest {
 		m.bodyInput.Focus()
 	} else {
 		m.bodyInput.Blur()
@@ -241,15 +243,15 @@ func (m model) View() string {
 	if bodyHeight < 3 {
 		bodyHeight = 3
 	}
-	bodySection := m.viewBody(mainWidth, bodyHeight)
+	requestSection := m.viewRequest(mainWidth, bodyHeight)
 
-	responseHeight := contentHeight - lipgloss.Height(urlSection) - lipgloss.Height(bodySection)
+	responseHeight := contentHeight - lipgloss.Height(urlSection) - lipgloss.Height(requestSection)
 	if responseHeight < 3 {
 		responseHeight = 3
 	}
 	responseSection := m.viewResponse(mainWidth, responseHeight)
 
-	rightCol := lipgloss.JoinVertical(lipgloss.Left, urlSection, bodySection, responseSection)
+	rightCol := lipgloss.JoinVertical(lipgloss.Left, urlSection, requestSection, responseSection)
 	historySection := m.viewHistory(contentHeight)
 
 	layout := lipgloss.JoinHorizontal(lipgloss.Top, historySection, rightCol)

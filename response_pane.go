@@ -6,6 +6,7 @@ type responseTab int
 const (
 	responseTabBody responseTab = iota
 	responseTabHeaders
+	responseTabCount
 )
 
 // handleResponseKeys handles key input when the response pane is focused.
@@ -13,9 +14,9 @@ const (
 func (m *model) handleResponseKeys(keyStr string) {
 	switch keyStr {
 	case "left", "h":
-		m.responseTab = responseTabBody
+		m.responseTab = (m.responseTab + 1) % responseTabCount
 	case "right", "l":
-		m.responseTab = responseTabHeaders
+		m.responseTab = (m.responseTab - 1) % responseTabCount
 	}
 }
 
