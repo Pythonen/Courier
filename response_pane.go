@@ -9,14 +9,12 @@ const (
 	responseTabCount
 )
 
-// handleResponseKeys handles key input when the response pane is focused.
-// Left/right arrows switch between Body and Headers tabs.
 func (m *model) handleResponseKeys(keyStr string) {
 	switch keyStr {
 	case "left", "h":
-		m.responseTab = (m.responseTab + 1) % responseTabCount
+		m.responseTab = (m.responseTab - 1 + responseTabCount) % responseTabCount
 	case "right", "l":
-		m.responseTab = (m.responseTab - 1) % responseTabCount
+		m.responseTab = (m.responseTab + 1) % responseTabCount
 	}
 }
 
