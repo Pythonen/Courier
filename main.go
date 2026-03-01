@@ -41,6 +41,13 @@ type historyItem struct {
 	url    string
 }
 
+type inputMode int
+
+const (
+	modeNormal inputMode = iota
+	modeInsert
+)
+
 type keymap struct {
 	next, prev, send, cycleMethod, quit key.Binding
 }
@@ -52,6 +59,7 @@ type model struct {
 	urlInput        textinput.Model
 	methodIdx       int
 	bodyInput       textarea.Model
+	headersInput    headersTable
 	responseHeaders viewport.Model
 	responseTab     responseTab
 	requestTab      requestTab
@@ -59,9 +67,10 @@ type model struct {
 	historyPos      int
 	response        viewport.Model
 
-	focus  pane
-	keymap keymap
-	help   help.Model
+	focus     pane
+	inputMode inputMode
+	keymap    keymap
+	help      help.Model
 }
 
 func newModel() model {
@@ -79,10 +88,12 @@ func newModel() model {
 	m := model{
 		urlInput:        ti,
 		bodyInput:       ta,
+		headersInput:    newHeadersTable(),
 		response:        viewport.New(0, 0),
 		responseHeaders: viewport.New(0, 0),
 		history:         []historyItem{},
 		focus:           paneURL,
+		inputMode:       modeNormal,
 		help:            help.New(),
 		keymap: keymap{
 			next: key.NewBinding(
@@ -125,20 +136,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.responseHeaders.SetContent(msg.responseHeaders)
 
 	case tea.KeyMsg:
+		inInsert := m.focus == paneRequest && m.inputMode == modeInsert
+
 		switch {
 		case key.Matches(msg, m.keymap.quit):
 			return m, tea.Quit
 
-		case key.Matches(msg, m.keymap.next):
+		case !inInsert && key.Matches(msg, m.keymap.next):
 			m.setFocus((m.focus + 1) % paneCount)
 
-		case key.Matches(msg, m.keymap.prev):
+		case !inInsert && key.Matches(msg, m.keymap.prev):
 			m.setFocus((m.focus - 1 + paneCount) % paneCount)
 
-		case key.Matches(msg, m.keymap.cycleMethod):
+		case !inInsert && key.Matches(msg, m.keymap.cycleMethod):
 			m.methodIdx = (m.methodIdx + 1) % len(methods)
 
-		case key.Matches(msg, m.keymap.send):
+		case !inInsert && key.Matches(msg, m.keymap.send):
 			method := methods[m.methodIdx]
 			url := m.urlInput.Value()
 			if url != "" {
@@ -154,10 +167,40 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.urlInput, cmd = m.urlInput.Update(msg)
 				cmds = append(cmds, cmd)
 			case paneRequest:
-				var cmd tea.Cmd
-				m.bodyInput, cmd = m.bodyInput.Update(msg)
-				m.handleRequestKeys(msg.String())
-				cmds = append(cmds, cmd)
+				keyStr := msg.String()
+				if m.inputMode == modeInsert {
+					if keyStr == "esc" {
+						m.inputMode = modeNormal
+						m.bodyInput.Blur()
+						m.headersInput.blurAll()
+					} else if m.requestTab == requestTabHeaders {
+						cmd := m.headersInput.UpdateInsert(msg)
+						cmds = append(cmds, cmd)
+					} else if m.requestTab == requestTabBody {
+						var cmd tea.Cmd
+						m.bodyInput, cmd = m.bodyInput.Update(msg)
+						cmds = append(cmds, cmd)
+					}
+				} else {
+					// Normal mode
+					switch keyStr {
+					case "i":
+						m.inputMode = modeInsert
+						if m.requestTab == requestTabHeaders {
+							cmd := m.headersInput.FocusCurrent()
+							cmds = append(cmds, cmd)
+						} else if m.requestTab == requestTabBody {
+							m.bodyInput.Focus()
+						}
+					case "left", "right":
+						m.handleRequestKeys(keyStr)
+						m.syncRequestTabFocus()
+					default:
+						if m.requestTab == requestTabHeaders {
+							m.headersInput.UpdateNormal(keyStr)
+						}
+					}
+				}
 			case paneHistory:
 				m.handleHistoryKeys(msg.String())
 			case paneResponse:
@@ -184,10 +227,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.urlInput, cmd = m.urlInput.Update(msg)
 			cmds = append(cmds, cmd)
 		}
-		if m.focus == paneRequest {
-			var cmd tea.Cmd
-			m.bodyInput, cmd = m.bodyInput.Update(msg)
-			cmds = append(cmds, cmd)
+		if m.focus == paneRequest && m.inputMode == modeInsert {
+			if m.requestTab == requestTabBody {
+				var cmd tea.Cmd
+				m.bodyInput, cmd = m.bodyInput.Update(msg)
+				cmds = append(cmds, cmd)
+			} else if m.requestTab == requestTabHeaders {
+				cmd := m.headersInput.UpdateInsert(msg)
+				cmds = append(cmds, cmd)
+			}
 		}
 	}
 
@@ -196,15 +244,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *model) setFocus(p pane) {
 	m.focus = p
+	m.inputMode = modeNormal
+
 	if p == paneURL {
 		m.urlInput.Focus()
 	} else {
 		m.urlInput.Blur()
 	}
+
+	// When entering request pane, start in normal mode (nothing focused).
+	// When leaving, blur everything.
+	m.bodyInput.Blur()
+	m.headersInput.Blur()
+
 	if p == paneRequest {
-		m.bodyInput.Focus()
-	} else {
-		m.bodyInput.Blur()
+		m.headersInput.Focus()
+		m.syncRequestTabFocus()
+	}
+}
+
+func (m *model) syncRequestTabFocus() {
+	m.headersInput.Blur()
+	m.bodyInput.Blur()
+	if m.requestTab == requestTabHeaders {
+		m.headersInput.Focus()
 	}
 }
 
@@ -222,6 +285,8 @@ func (m *model) sizeComponents() {
 	}
 	m.bodyInput.SetWidth(mainWidth - 2)
 	m.bodyInput.SetHeight(bodyHeight)
+	m.headersInput.SetWidth(mainWidth - 4)
+	m.headersInput.SetHeight(bodyHeight)
 }
 
 func (m model) View() string {

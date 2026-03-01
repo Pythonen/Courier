@@ -48,4 +48,8 @@ var (
 	inactiveTabStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("241")).
 				Padding(0, 1)
+
+	modeIndicatorStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("212"))
 )
