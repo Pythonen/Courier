@@ -175,6 +175,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if url != "" {
 				m.responseModel.SetContent(fmt.Sprintf("Sending request %s %s ...", method, url))
 				requestComponents := make(map[string]string)
+				// TODO: populate auth and params as well when the panes are implemented
 				requestBody := m.bodyInput.Value()
 				requestComponents["body"] = requestBody
 				requestId := uuid.New()
