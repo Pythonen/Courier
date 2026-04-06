@@ -16,6 +16,7 @@ func (m *model) handleHistoryKeys(keyStr string) {
 		if len(m.history) > 0 {
 			// TODO: should this be centralized somehow? We are mutating the model from all over the place.
 			item := m.history[m.historyPos]
+			// TODO: populate auth and params as well when the panes are implemented
 			m.urlInput.SetValue(item.url)
 			m.bodyInput.SetValue(item.requestComponents["body"])
 			m.response = item.responseComponents["body"]
