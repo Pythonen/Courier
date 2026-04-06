@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	uuid "github.com/google/uuid"
 )
 
 const (
@@ -37,8 +38,11 @@ const (
 var methods = []string{"GET", "POST", "PUT", "PATCH", "DELETE"}
 
 type historyItem struct {
-	method string
-	url    string
+	method             string
+	url                string
+	responseComponents map[string]string // TODO: This might have to be something else down the line...
+	requestComponents  map[string]string // Body, params, auth, headers
+	requestId          uuid.UUID
 }
 
 type inputMode int
@@ -56,16 +60,19 @@ type model struct {
 	width  int
 	height int
 
-	urlInput        textinput.Model
-	methodIdx       int
-	bodyInput       textarea.Model
-	headersInput    headersTable
-	responseHeaders viewport.Model
-	responseTab     responseTab
-	requestTab      requestTab
-	history         []historyItem
-	historyPos      int
-	response        viewport.Model
+	urlInput             textinput.Model
+	methodIdx            int
+	bodyInput            textarea.Model
+	headersInput         headersTable
+	responseHeadersModel viewport.Model
+	responseHeaders      string
+	responseTab          responseTab
+	requestTab           requestTab
+	history              []historyItem // TODO: Would be nice to have this as map
+	historyPos           int
+	responseModel        viewport.Model
+	response             string
+	requestId            uuid.UUID
 
 	focus     pane
 	inputMode inputMode
@@ -86,15 +93,15 @@ func newModel() model {
 	ta.Blur()
 
 	m := model{
-		urlInput:        ti,
-		bodyInput:       ta,
-		headersInput:    newHeadersTable(),
-		response:        viewport.New(0, 0),
-		responseHeaders: viewport.New(0, 0),
-		history:         []historyItem{},
-		focus:           paneURL,
-		inputMode:       modeNormal,
-		help:            help.New(),
+		urlInput:             ti,
+		bodyInput:            ta,
+		headersInput:         newHeadersTable(),
+		responseModel:        viewport.New(0, 0),
+		responseHeadersModel: viewport.New(0, 0),
+		history:              []historyItem{},
+		focus:                paneURL,
+		inputMode:            modeNormal,
+		help:                 help.New(),
 		keymap: keymap{
 			next: key.NewBinding(
 				key.WithKeys("tab"),
@@ -106,8 +113,7 @@ func newModel() model {
 			),
 			send: key.NewBinding(
 				key.WithKeys("ctrl+s"),
-				key.WithKeys("enter"),
-				key.WithHelp("ctrl+s / enter", "send request"),
+				key.WithHelp("ctrl+s", "send request"),
 			),
 			cycleMethod: key.NewBinding(
 				key.WithKeys("ctrl+o"),
@@ -132,8 +138,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
 	case responseMsg:
-		m.response.SetContent(msg.responseBody)
-		m.responseHeaders.SetContent(msg.responseHeaders)
+		m.responseModel.SetContent(msg.responseBody)
+		m.response = msg.responseBody
+		m.responseHeadersModel.SetContent(msg.responseHeaders)
+		m.responseHeaders = msg.responseHeaders
+		if len(m.history) > 0 {
+			// TODO: This is a bit meh, let's see if we can refactor history to be a map
+			for _, n := range m.history {
+				if n.requestId == m.requestId {
+					n.responseComponents["body"] = msg.responseBody
+					n.responseComponents["headers"] = msg.responseHeaders
+					break
+				}
+			}
+		}
 
 	case tea.KeyMsg:
 		inInsert := m.focus == paneRequest && m.inputMode == modeInsert
@@ -155,8 +173,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			method := methods[m.methodIdx]
 			url := m.urlInput.Value()
 			if url != "" {
-				m.response.SetContent(fmt.Sprintf("Sending request %s %s ...", method, url))
-				m.history = append([]historyItem{{method: method, url: url}}, m.history...)
+				m.responseModel.SetContent(fmt.Sprintf("Sending request %s %s ...", method, url))
+				requestComponents := make(map[string]string)
+				requestBody := m.bodyInput.Value()
+				requestComponents["body"] = requestBody
+				requestId := uuid.New()
+				responseComponents := make(map[string]string)
+				responseComponents["body"] = ""
+				responseComponents["headers"] = ""
+				m.requestId = requestId
+				m.history = append([]historyItem{{method: method, url: url, requestComponents: requestComponents, requestId: requestId, responseComponents: responseComponents}}, m.history...)
 				return m, m.DoRequest()
 			}
 
@@ -206,10 +232,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case paneResponse:
 				m.handleResponseKeys(msg.String())
 				var cmd tea.Cmd
-				m.response, cmd = m.response.Update(msg)
+				m.responseModel, cmd = m.responseModel.Update(msg)
 				cmds = append(cmds, cmd)
 
-				m.responseHeaders, cmd = m.responseHeaders.Update(msg)
+				m.responseHeadersModel, cmd = m.responseHeadersModel.Update(msg)
 				cmds = append(cmds, cmd)
 			}
 		}
