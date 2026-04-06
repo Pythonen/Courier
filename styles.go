@@ -3,10 +3,6 @@ package main
 import "github.com/charmbracelet/lipgloss"
 
 var (
-	titleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("212"))
-
 	methodStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("212")).

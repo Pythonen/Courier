@@ -38,7 +38,7 @@ func (m model) DoRequest() tea.Cmd {
 		if err != nil {
 			return responseMsg{responseBody: fmt.Sprintf("Error: %v", err)}
 		}
-		defer resp.Body.Close()
+		defer resp.Body.Close() //nolint:errcheck
 
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
