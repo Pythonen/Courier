@@ -213,10 +213,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					switch keyStr {
 					case "i":
 						m.inputMode = modeInsert
-						if m.requestTab == requestTabHeaders {
+						switch m.requestTab {
+						case requestTabHeaders:
 							cmd := m.headersInput.FocusCurrent()
 							cmds = append(cmds, cmd)
-						} else if m.requestTab == requestTabBody {
+						case requestTabBody:
 							m.bodyInput.Focus()
 						}
 					case "left", "right":
@@ -255,11 +256,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 		if m.focus == paneRequest && m.inputMode == modeInsert {
-			if m.requestTab == requestTabBody {
+			switch m.requestTab {
+			case requestTabBody:
 				var cmd tea.Cmd
 				m.bodyInput, cmd = m.bodyInput.Update(msg)
 				cmds = append(cmds, cmd)
-			} else if m.requestTab == requestTabHeaders {
+			case requestTabHeaders:
 				cmd := m.headersInput.UpdateInsert(msg)
 				cmds = append(cmds, cmd)
 			}
