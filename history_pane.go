@@ -6,21 +6,22 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// handleHistoryKeys handles key input when the history pane is focused.
 func (m *model) handleHistoryKeys(keyStr string) {
 	switch keyStr {
+	// NOTE: Let's see down the line if this immediate preview / populating panes has some perf issues
 	case "up", "k":
 		if m.historyPos > 0 {
 			m.historyPos--
 		}
-	case "down", "j":
-		if m.historyPos < len(m.history)-1 {
-			m.historyPos++
-		}
-	case "enter":
 		if len(m.history) > 0 {
+			// TODO: should this be centralized somehow? We are mutating the model from all over the place.
 			item := m.history[m.historyPos]
 			m.urlInput.SetValue(item.url)
+			m.bodyInput.SetValue(item.requestComponents["body"])
+			m.response = item.responseComponents["body"]
+			m.responseHeaders = item.responseComponents["headers"]
+			m.responseModel.SetContent(m.response)
+			m.responseHeadersModel.SetContent(m.responseHeaders)
 			for i, method := range methods {
 				if method == item.method {
 					m.methodIdx = i
@@ -28,10 +29,33 @@ func (m *model) handleHistoryKeys(keyStr string) {
 				}
 			}
 		}
+	// NOTE: Let's see down the line if this immediate preview / populating the panes has some perf issues
+	case "down", "j":
+		if m.historyPos < len(m.history)-1 {
+			m.historyPos++
+		}
+		if len(m.history) > 0 {
+			item := m.history[m.historyPos]
+			m.urlInput.SetValue(item.url)
+			m.bodyInput.SetValue(item.requestComponents["body"])
+			m.response = item.responseComponents["body"]
+			m.responseHeaders = item.responseComponents["headers"]
+			m.responseModel.SetContent(m.response)
+			m.responseHeadersModel.SetContent(m.responseHeaders)
+			for i, method := range methods {
+				if method == item.method {
+					m.methodIdx = i
+					break
+				}
+			}
+		}
+	case "enter":
+		if len(m.history) > 0 {
+			m.focus = paneURL
+		}
 	}
 }
 
-// viewHistory renders the history sidebar.
 func (m model) viewHistory(contentHeight int) string {
 	border := blurredBorder
 	if m.focus == paneHistory {
@@ -40,6 +64,7 @@ func (m model) viewHistory(contentHeight int) string {
 
 	label := labelStyle.Render("History")
 
+	// TODO: Let's group history items based on ??, such that we don't create duplicate history entries
 	var items []string
 	visible := contentHeight - 4
 	if visible < 1 {

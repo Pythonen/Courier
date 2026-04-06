@@ -35,14 +35,14 @@ func (m model) viewResponse(mainWidth, height int) string {
 	}
 	tabBar := bodyTab + " " + headersTab
 
-	m.response.Width = mainWidth - 2
-	m.response.Height = height - 3
-	m.responseHeaders.Width = mainWidth - 2
-	m.responseHeaders.Height = height - 3
-	content := m.response.View()
+	m.responseModel.Width = mainWidth - 2 // TODO: These are no good, see https://leg100.github.io/en/posts/building-bubbletea-programs/#7-layout-arithmetic-is-error-prone
+	m.responseModel.Height = height - 3
+	m.responseHeadersModel.Width = mainWidth - 2
+	m.responseHeadersModel.Height = height - 3
+	content := m.responseModel.View()
 	content = responseStyle.Render(content)
 	if m.responseTab == responseTabHeaders {
-		content = m.responseHeaders.View()
+		content = m.responseHeadersModel.View()
 		content = responseStyle.Render(content)
 	}
 
