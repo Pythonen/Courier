@@ -6,7 +6,7 @@ import (
 	"io"
 	"net/http"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 type responseMsg struct {
