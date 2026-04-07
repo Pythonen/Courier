@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 type headerRow struct {
@@ -126,8 +126,8 @@ func (h *headersTable) UpdateNormal(keyStr string) {
 		h.pendingD = false
 		newRow := newHeaderRow()
 		keyCol, valCol := h.colWidths()
-		newRow.key.Width = keyCol
-		newRow.value.Width = valCol
+		newRow.key.SetWidth(keyCol)
+		newRow.value.SetWidth(valCol)
 		pos := h.cursorRow + 1
 		h.rows = append(h.rows, headerRow{})
 		copy(h.rows[pos+1:], h.rows[pos:])
@@ -153,11 +153,11 @@ func (h *headersTable) UpdateNormal(keyStr string) {
 
 func (h *headersTable) SetWidth(w int) {
 	h.width = w
-	h.viewport.Width = w
+	h.viewport.SetWidth(w)
 	keyCol, valCol := h.colWidths()
 	for i := range h.rows {
-		h.rows[i].key.Width = keyCol
-		h.rows[i].value.Width = valCol
+		h.rows[i].key.SetWidth(keyCol)
+		h.rows[i].value.SetWidth(valCol)
 	}
 }
 
@@ -168,7 +168,7 @@ func (h *headersTable) SetHeight(height int) {
 	if vpHeight < 1 {
 		vpHeight = 1
 	}
-	h.viewport.Height = vpHeight
+	h.viewport.SetHeight(vpHeight)
 }
 
 // colWidths returns the inner widths for key and value columns.
@@ -277,9 +277,9 @@ func (h *headersTable) View() string {
 	// Each row takes 2 lines (content + separator), except the last (1 line).
 	// Header takes 3 lines (top border, header, separator).
 	cursorLine := 3 + h.cursorRow*2
-	if cursorLine >= h.viewport.YOffset+h.viewport.Height {
-		h.viewport.SetYOffset(cursorLine - h.viewport.Height + 1)
-	} else if cursorLine < h.viewport.YOffset {
+	if cursorLine >= h.viewport.YOffset()+h.viewport.Height() {
+		h.viewport.SetYOffset(cursorLine - h.viewport.Height() + 1)
+	} else if cursorLine < h.viewport.YOffset() {
 		h.viewport.SetYOffset(cursorLine)
 	}
 

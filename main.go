@@ -7,14 +7,15 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/help"
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textarea"
-	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	uuid "github.com/google/uuid"
+	zone "github.com/lrstanley/bubblezone/v2"
 )
 
 const (
@@ -93,15 +94,21 @@ func newModel() model {
 	ta.Blur()
 
 	m := model{
-		urlInput:             ti,
-		bodyInput:            ta,
-		headersInput:         newHeadersTable(),
-		responseModel:        viewport.New(0, 0),
-		responseHeadersModel: viewport.New(0, 0),
-		history:              []historyItem{},
-		focus:                paneURL,
-		inputMode:            modeNormal,
-		help:                 help.New(),
+		urlInput:     ti,
+		bodyInput:    ta,
+		headersInput: newHeadersTable(),
+		responseModel: viewport.New(
+			viewport.WithWidth(0),
+			viewport.WithHeight(0),
+		),
+		responseHeadersModel: viewport.New(
+			viewport.WithWidth(0),
+			viewport.WithHeight(0),
+		),
+		history:   []historyItem{},
+		focus:     paneURL,
+		inputMode: modeNormal,
+		help:      help.New(),
 		keymap: keymap{
 			next: key.NewBinding(
 				key.WithKeys("tab"),
@@ -306,7 +313,7 @@ func (m *model) sizeComponents() {
 		mainWidth = 20
 	}
 
-	m.urlInput.Width = mainWidth - methodWidth - 4
+	m.urlInput.SetWidth(mainWidth - methodWidth - 4)
 
 	bodyHeight := (m.height - urlBarHeight - helpHeight - 6) / 2
 	if bodyHeight < 3 {
@@ -318,9 +325,15 @@ func (m *model) sizeComponents() {
 	m.headersInput.SetHeight(bodyHeight)
 }
 
-func (m model) View() string {
+func (m model) View() tea.View {
+	var v tea.View
+	v.AltScreen = true
+	v.ReportFocus = true
+	v.MouseMode = tea.MouseModeCellMotion
+
 	if m.width == 0 {
-		return "Loading..."
+		v.SetContent("Loading...")
+		return v
 	}
 
 	mainWidth := m.width - historyWidth - 4
@@ -358,7 +371,8 @@ func (m model) View() string {
 		m.keymap.quit,
 	}))
 
-	return layout + "\n" + helpView
+	v.SetContent(zone.Scan(layout + "\n" + helpView))
+	return v
 }
 
 // TODO: We have to either wrap the lines or make the viewport scrollable sideways
@@ -384,7 +398,8 @@ func formatHeaders(h http.Header) string {
 }
 
 func main() {
-	if _, err := tea.NewProgram(newModel(), tea.WithAltScreen()).Run(); err != nil {
+	zone.NewGlobal()
+	if _, err := tea.NewProgram(newModel()).Run(); err != nil {
 		fmt.Println("Error while running program:", err)
 		os.Exit(1)
 	}

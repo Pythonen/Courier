@@ -1,6 +1,6 @@
 package main
 
-import "github.com/charmbracelet/lipgloss"
+import "charm.land/lipgloss/v2"
 
 // viewURL renders the URL bar: [METHOD] [url input field]
 func (m model) viewURL(mainWidth int) string {
