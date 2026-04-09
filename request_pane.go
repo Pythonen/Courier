@@ -2,6 +2,7 @@ package main
 
 import (
 	"charm.land/lipgloss/v2"
+	zone "github.com/lrstanley/bubblezone/v2"
 	"strings"
 )
 
@@ -42,10 +43,10 @@ func (m model) viewRequest(mainWidth, height int) string {
 		Border(noBottomBorder).
 		BorderForeground(borderColor)
 
-	bodyTab := inactiveTabStyle.Render("Body")
-	headersTab := inactiveTabStyle.Render("Headers")
-	authTab := inactiveTabStyle.Render("Authorization")
-	paramsTab := inactiveTabStyle.Render("Params")
+	bodyTab := zone.Mark("bodyTab", inactiveTabStyle.Render("Body"))
+	headersTab := zone.Mark("headersTab", inactiveTabStyle.Render("Headers"))
+	authTab := zone.Mark("authTab", inactiveTabStyle.Render("Authorization"))
+	paramsTab := zone.Mark("paramsTab", inactiveTabStyle.Render("Params"))
 
 	switch m.requestTab {
 	case requestTabBody:
@@ -70,10 +71,10 @@ func (m model) viewRequest(mainWidth, height int) string {
 		content = hintStyle.Render("  (not implemented)")
 	}
 
-	box := border.
+	box := zone.Mark("request", border.
 		Width(mainWidth).
 		Height(height).
-		Render(tabBar + "\n" + content)
+		Render(tabBar+"\n"+content))
 
 	// Build custom bottom border with mode indicator embedded
 	bdrStyle := lipgloss.NewStyle().Foreground(borderColor)
