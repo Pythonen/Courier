@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	zone "github.com/lrstanley/bubblezone/v2"
 )
 
 func (m *model) handleHistoryKeys(keyStr string) {
@@ -103,8 +104,8 @@ func (m model) viewHistory(contentHeight int) string {
 	}
 
 	content := label + "\n" + strings.Join(items, "\n")
-	return border.
+	return zone.Mark("history", border.
 		Width(historyWidth).
 		Height(contentHeight).
-		Render(content)
+		Render(content))
 }

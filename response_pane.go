@@ -1,5 +1,7 @@
 package main
 
+import zone "github.com/lrstanley/bubblezone/v2"
+
 // responseTab tracks which tab is active in the response pane.
 type responseTab int
 
@@ -26,8 +28,8 @@ func (m model) viewResponse(mainWidth, height int) string {
 	}
 
 	// Tab bar
-	bodyTab := inactiveTabStyle.Render("Body")
-	headersTab := inactiveTabStyle.Render("Headers")
+	bodyTab := zone.Mark("responseTabBody", inactiveTabStyle.Render("Body"))
+	headersTab := zone.Mark("responseTabHeaders", inactiveTabStyle.Render("Headers"))
 	if m.responseTab == responseTabBody {
 		bodyTab = activeTabStyle.Render("Body")
 	} else {
@@ -46,8 +48,8 @@ func (m model) viewResponse(mainWidth, height int) string {
 		content = responseStyle.Render(content)
 	}
 
-	return border.
+	return zone.Mark("response", border.
 		Width(mainWidth).
 		Height(height).
-		Render(tabBar + "\n" + content)
+		Render(tabBar+"\n"+content))
 }

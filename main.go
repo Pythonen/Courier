@@ -253,6 +253,47 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.sizeComponents()
+
+	case tea.MouseReleaseMsg:
+		if msg.Button != tea.MouseLeft {
+			return m, nil
+		}
+
+		if zone.Get("url").InBounds(msg) {
+			m.setFocus(paneURL)
+		} else if zone.Get("bodyTab").InBounds(msg) {
+			m.setFocus(paneRequest)
+			m.requestTab = requestTabBody
+			m.syncRequestTabFocus()
+		} else if zone.Get("headersTab").InBounds(msg) {
+			m.setFocus(paneRequest)
+			m.requestTab = requestTabHeaders
+			m.syncRequestTabFocus()
+		} else if zone.Get("authTab").InBounds(msg) {
+			m.setFocus(paneRequest)
+			m.requestTab = requestTabAuth
+			m.syncRequestTabFocus()
+		} else if zone.Get("paramsTab").InBounds(msg) {
+			m.setFocus(paneRequest)
+			m.requestTab = requestTabParams
+			m.syncRequestTabFocus()
+		} else if zone.Get("request").InBounds(msg) {
+			m.setFocus(paneRequest)
+			m.syncRequestTabFocus()
+			// TODO: Ability to click individual history items
+		} else if zone.Get("history").InBounds(msg) {
+			m.setFocus(paneHistory)
+		} else if zone.Get("responseTabBody").InBounds(msg) {
+			m.setFocus(paneResponse)
+			m.responseTab = responseTabBody
+		} else if zone.Get("responseTabHeaders").InBounds(msg) {
+			m.setFocus(paneResponse)
+			m.responseTab = responseTabHeaders
+		} else if zone.Get("response").InBounds(msg) {
+			m.setFocus(paneResponse)
+		}
+
+		return m, nil
 	}
 
 	// Forward non-key messages (like blink ticks) to focused input.
@@ -344,7 +385,7 @@ func (m model) View() tea.View {
 	contentHeight := m.height - helpHeight - 2
 
 	// Render each pane via its own file's method
-	urlSection := m.viewURL(mainWidth)
+	urlSection := zone.Mark("url", m.viewURL(mainWidth))
 
 	bodyHeight := (contentHeight - lipgloss.Height(urlSection) - 2) / 2
 	if bodyHeight < 3 {
