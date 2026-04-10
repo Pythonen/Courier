@@ -1,5 +1,7 @@
 # Courier
 
+![Courier](./assets/Courier.png)
+
 ✨Just like Postman, but in your terminal!✨
 
 Are you the kind of person who does not want to leave the terminal just to test an API? Me neither.
