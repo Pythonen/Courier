@@ -1,4 +1,4 @@
-package main
+package tui
 
 import zone "github.com/lrstanley/bubblezone/v2"
 

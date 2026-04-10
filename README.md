@@ -9,20 +9,24 @@ Courier is a terminal UI HTTP client built with Bubble Tea. It lets you compose 
 ## Run Courier
 
 ### Prerequisites
+
 - Go 1.24+
 
 ### Start directly
+
 ```bash
-go run .
+go run ./cmd
 ```
 
 ### Or build a binary
+
 ```bash
-go build -o courier .
+go build -o courier ./cmd
 ./courier
 ```
 
 ## Basic controls
+
 - `Tab` / `Shift+Tab`: move between panes
 - `Ctrl+O`: cycle request method
 - `Ctrl+S` or `Enter`: send request
