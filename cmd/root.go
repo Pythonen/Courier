@@ -12,7 +12,7 @@ import (
 func main() {
 	zone.NewGlobal()
 	if _, err := tea.NewProgram(tui.NewModel()).Run(); err != nil {
-		fmt.Println("Error while running program:", err)
+		fmt.Fprintln(os.Stderr, "Error while running program:", err)
 		os.Exit(1)
 	}
 }
