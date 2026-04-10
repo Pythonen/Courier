@@ -10,7 +10,7 @@ Courier is a terminal UI HTTP client built with Bubble Tea. It lets you compose 
 
 ### Prerequisites
 
-- Go 1.24+
+- Go 1.25+
 
 ### Start directly
 
