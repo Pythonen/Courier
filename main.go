@@ -259,7 +259,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		if zone.Get("url").InBounds(msg) {
+		if zone.Get("method").InBounds(msg) {
+			m.setFocus(paneURL)
+			m.methodIdx = (m.methodIdx + 1) % len(methods)
+		} else if zone.Get("url").InBounds(msg) {
 			m.setFocus(paneURL)
 		} else if zone.Get("bodyTab").InBounds(msg) {
 			m.setFocus(paneRequest)
