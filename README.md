@@ -1,6 +1,6 @@
 # Courier
 
-![Courier](./assets/Courier.png)
+<img src="./assets/Courier.png" alt="Courier" width="200"/>
 
 ✨Just like Postman, but in your terminal!✨
 
