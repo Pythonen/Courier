@@ -1,4 +1,4 @@
-package main
+package tui
 
 import (
 	"io"
@@ -48,7 +48,7 @@ func TestDoRequest_Integration(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	m := newModel()
+	m := NewModel()
 	m.methodIdx = methodIndex(t, "POST")
 	m.urlInput.SetValue(srv.URL + "/api")
 	m.bodyInput.SetValue(`{"from":"test"}`)

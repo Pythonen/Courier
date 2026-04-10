@@ -1,9 +1,8 @@
-package main
+package tui
 
 import (
 	"fmt"
 	"net/http"
-	"os"
 	"sort"
 	"strings"
 
@@ -81,7 +80,7 @@ type model struct {
 	help      help.Model
 }
 
-func newModel() model {
+func NewModel() model {
 	ti := textinput.New()
 	ti.Placeholder = "https://api.example.com/endpoint"
 	ti.CharLimit = 2048
@@ -439,12 +438,4 @@ func formatHeaders(h http.Header) string {
 		}
 	}
 	return b.String()
-}
-
-func main() {
-	zone.NewGlobal()
-	if _, err := tea.NewProgram(newModel()).Run(); err != nil {
-		fmt.Println("Error while running program:", err)
-		os.Exit(1)
-	}
 }
