@@ -1,6 +1,8 @@
-# Courier
+<p align="center">
+  <img src="./assets/Courier.png" alt="Courier" width="200"/>
+</p>
 
-<img src="./assets/Courier.png" alt="Courier" width="200"/>
+<h1 align="center">Courier</h1>
 
 ✨Just like Postman, but in your terminal!✨
 
