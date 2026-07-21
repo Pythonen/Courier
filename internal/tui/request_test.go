@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 func methodIndex(t *testing.T, method string) int {
@@ -28,7 +29,8 @@ func stripANSI(s string) string {
 func TestDoRequest_Integration(t *testing.T) {
 	t.Parallel()
 
-	var gotMethod, gotPath, gotHeader, gotBody string
+	var gotMethod, gotPath, gotBody string
+	var gotHeaders []string
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
@@ -38,7 +40,7 @@ func TestDoRequest_Integration(t *testing.T) {
 
 		gotMethod = r.Method
 		gotPath = r.URL.Path
-		gotHeader = r.Header.Get("X-Test")
+		gotHeaders = r.Header.Values("X-Test")
 		gotBody = string(body)
 
 		w.Header().Set("Content-Type", "application/json")
@@ -52,8 +54,10 @@ func TestDoRequest_Integration(t *testing.T) {
 	m.methodIdx = methodIndex(t, "POST")
 	m.urlInput.SetValue(srv.URL + "/api")
 	m.bodyInput.SetValue(`{"from":"test"}`)
-	m.headersInput.rows[0].key.SetValue("X-Test")
-	m.headersInput.rows[0].value.SetValue("abc123")
+	m.headersInput.SetEntries([]headerEntry{
+		{key: "X-Test", value: "abc123"},
+		{key: "X-Test", value: "second"},
+	})
 
 	msg := m.DoRequest()()
 	resp, ok := msg.(responseMsg)
@@ -67,8 +71,8 @@ func TestDoRequest_Integration(t *testing.T) {
 	if gotPath != "/api" {
 		t.Fatalf("server saw path %q, want /api", gotPath)
 	}
-	if gotHeader != "abc123" {
-		t.Fatalf("server saw X-Test %q, want abc123", gotHeader)
+	if strings.Join(gotHeaders, ",") != "abc123,second" {
+		t.Fatalf("server saw X-Test values %q", gotHeaders)
 	}
 	if gotBody != `{"from":"test"}` {
 		t.Fatalf("server saw body %q, want JSON payload", gotBody)
@@ -87,5 +91,47 @@ func TestDoRequest_Integration(t *testing.T) {
 	}
 	if !strings.Contains(resp.responseHeaders, "X-Server: teatest") {
 		t.Fatalf("response headers missing server marker, got: %q", resp.responseHeaders)
+	}
+	if !strings.Contains(resp.responseMeta, "201 Created") || !strings.Contains(resp.responseMeta, "B") {
+		t.Fatalf("response metadata missing status or size, got: %q", resp.responseMeta)
+	}
+}
+
+func TestDoRequest_Timeout(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(100 * time.Millisecond)
+		_, _ = w.Write([]byte("too late"))
+	}))
+	defer srv.Close()
+
+	m := NewModel()
+	m.client.Timeout = 10 * time.Millisecond
+	m.urlInput.SetValue(srv.URL)
+
+	resp := m.DoRequest()().(responseMsg)
+	if !strings.Contains(resp.responseBody, "Client.Timeout") {
+		t.Fatalf("timeout error not surfaced, got: %q", resp.responseBody)
+	}
+	if !strings.Contains(resp.responseMeta, "Request failed") {
+		t.Fatalf("timeout metadata missing failure state, got: %q", resp.responseMeta)
+	}
+}
+
+func TestDoRequest_ResponseBodyLimit(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(strings.Repeat("x", maxResponseBody+1)))
+	}))
+	defer srv.Close()
+
+	m := NewModel()
+	m.urlInput.SetValue(srv.URL)
+
+	resp := m.DoRequest()().(responseMsg)
+	if !strings.Contains(resp.responseBody, "exceeds the 10.0 MiB display limit") {
+		t.Fatalf("oversized response was not rejected, got: %q", resp.responseBody)
 	}
 }

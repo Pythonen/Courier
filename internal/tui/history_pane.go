@@ -17,11 +17,13 @@ func (m *model) handleHistoryKeys(keyStr string) {
 		if len(m.history) > 0 {
 			// TODO: should this be centralized somehow? We are mutating the model from all over the place.
 			item := m.history[m.historyPos]
-			// TODO: populate auth and params as well when the panes are implemented
+			m.requestId = item.requestID
 			m.urlInput.SetValue(item.url)
-			m.bodyInput.SetValue(item.requestComponents["body"])
-			m.response = item.responseComponents["body"]
-			m.responseHeaders = item.responseComponents["headers"]
+			m.bodyInput.SetValue(item.requestBody)
+			m.headersInput.SetEntries(item.requestHeaders)
+			m.response = item.responseBody
+			m.responseHeaders = item.responseHeaders
+			m.responseMeta = item.responseMeta
 			m.responseModel.SetContent(m.response)
 			m.responseHeadersModel.SetContent(m.responseHeaders)
 			for i, method := range methods {
@@ -38,10 +40,13 @@ func (m *model) handleHistoryKeys(keyStr string) {
 		}
 		if len(m.history) > 0 {
 			item := m.history[m.historyPos]
+			m.requestId = item.requestID
 			m.urlInput.SetValue(item.url)
-			m.bodyInput.SetValue(item.requestComponents["body"])
-			m.response = item.responseComponents["body"]
-			m.responseHeaders = item.responseComponents["headers"]
+			m.bodyInput.SetValue(item.requestBody)
+			m.headersInput.SetEntries(item.requestHeaders)
+			m.response = item.responseBody
+			m.responseHeaders = item.responseHeaders
+			m.responseMeta = item.responseMeta
 			m.responseModel.SetContent(m.response)
 			m.responseHeadersModel.SetContent(m.responseHeaders)
 			for i, method := range methods {
@@ -53,7 +58,7 @@ func (m *model) handleHistoryKeys(keyStr string) {
 		}
 	case "enter":
 		if len(m.history) > 0 {
-			m.focus = paneURL
+			m.setFocus(paneURL)
 		}
 	}
 }
@@ -72,10 +77,13 @@ func (m model) viewHistory(contentHeight int) string {
 	if visible < 1 {
 		visible = 1
 	}
-	for i, item := range m.history {
-		if i >= visible {
-			break
-		}
+	start := 0
+	if m.historyPos >= visible {
+		start = m.historyPos - visible + 1
+	}
+	end := min(start+visible, len(m.history))
+	for i := start; i < end; i++ {
+		item := m.history[i]
 
 		urlStr := item.url
 		maxURL := historyWidth - 12

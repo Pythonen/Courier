@@ -15,6 +15,11 @@ type headerRow struct {
 	value textinput.Model
 }
 
+type headerEntry struct {
+	key   string
+	value string
+}
+
 type headersTable struct {
 	rows      []headerRow
 	cursorRow int
@@ -59,6 +64,41 @@ func (h *headersTable) Headers() map[string]string {
 		}
 	}
 	return result
+}
+
+// Entries returns the non-empty headers without collapsing duplicate names.
+func (h *headersTable) Entries() []headerEntry {
+	entries := make([]headerEntry, 0, len(h.rows))
+	for _, row := range h.rows {
+		key := strings.TrimSpace(row.key.Value())
+		if key == "" {
+			continue
+		}
+		entries = append(entries, headerEntry{key: key, value: strings.TrimSpace(row.value.Value())})
+	}
+	return entries
+}
+
+// SetEntries replaces the table contents with a request snapshot.
+func (h *headersTable) SetEntries(entries []headerEntry) {
+	if len(entries) == 0 {
+		entries = []headerEntry{{}}
+	}
+
+	h.rows = make([]headerRow, len(entries))
+	keyCol, valCol := h.colWidths()
+	for i, entry := range entries {
+		row := newHeaderRow()
+		row.key.SetValue(entry.key)
+		row.value.SetValue(entry.value)
+		row.key.SetWidth(keyCol)
+		row.value.SetWidth(valCol)
+		h.rows[i] = row
+	}
+	h.cursorRow = 0
+	h.cursorCol = 0
+	h.pendingD = false
+	h.blurAll()
 }
 
 func (h *headersTable) Focus() {

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
@@ -38,11 +39,14 @@ const (
 var methods = []string{"GET", "POST", "PUT", "PATCH", "DELETE"}
 
 type historyItem struct {
-	method             string
-	url                string
-	responseComponents map[string]string // TODO: This might have to be something else down the line...
-	requestComponents  map[string]string // Body, params, auth, headers
-	requestId          uuid.UUID
+	method          string
+	url             string
+	requestBody     string
+	requestHeaders  []headerEntry
+	responseBody    string
+	responseHeaders string
+	responseMeta    string
+	requestID       uuid.UUID
 }
 
 type inputMode int
@@ -59,6 +63,7 @@ type keymap struct {
 type model struct {
 	width  int
 	height int
+	client *http.Client
 
 	urlInput             textinput.Model
 	methodIdx            int
@@ -66,6 +71,7 @@ type model struct {
 	headersInput         headersTable
 	responseHeadersModel viewport.Model
 	responseHeaders      string
+	responseMeta         string
 	responseTab          responseTab
 	requestTab           requestTab
 	history              []historyItem // TODO: Would be nice to have this as map
@@ -93,6 +99,7 @@ func NewModel() model {
 	ta.Blur()
 
 	m := model{
+		client:       &http.Client{Timeout: 30 * time.Second},
 		urlInput:     ti,
 		bodyInput:    ta,
 		headersInput: newHeadersTable(),
@@ -118,8 +125,8 @@ func NewModel() model {
 				key.WithHelp("shift+tab", "prev pane"),
 			),
 			send: key.NewBinding(
-				key.WithKeys("ctrl+s"),
-				key.WithHelp("ctrl+s", "send request"),
+				key.WithKeys("ctrl+s", "enter"),
+				key.WithHelp("ctrl+s/enter", "send request"),
 			),
 			cycleMethod: key.NewBinding(
 				key.WithKeys("ctrl+o"),
@@ -144,19 +151,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
 	case responseMsg:
-		m.responseModel.SetContent(msg.responseBody)
-		m.response = msg.responseBody
-		m.responseHeadersModel.SetContent(msg.responseHeaders)
-		m.responseHeaders = msg.responseHeaders
-		if len(m.history) > 0 {
-			// TODO: This is a bit meh, let's see if we can refactor history to be a map
-			for _, n := range m.history {
-				if n.requestId == m.requestId {
-					n.responseComponents["body"] = msg.responseBody
-					n.responseComponents["headers"] = msg.responseHeaders
-					break
-				}
+		for i := range m.history {
+			if m.history[i].requestID == msg.requestID {
+				m.history[i].responseBody = msg.responseBody
+				m.history[i].responseHeaders = msg.responseHeaders
+				m.history[i].responseMeta = msg.responseMeta
+				break
 			}
+		}
+		// A slower, older request must not replace the currently selected response.
+		if msg.requestID == m.requestId {
+			m.responseModel.SetContent(msg.responseBody)
+			m.response = msg.responseBody
+			m.responseHeadersModel.SetContent(msg.responseHeaders)
+			m.responseHeaders = msg.responseHeaders
+			m.responseMeta = msg.responseMeta
 		}
 
 	case tea.KeyMsg:
@@ -175,21 +184,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case !inInsert && key.Matches(msg, m.keymap.cycleMethod):
 			m.methodIdx = (m.methodIdx + 1) % len(methods)
 
-		case !inInsert && key.Matches(msg, m.keymap.send):
+		case !inInsert && key.Matches(msg, m.keymap.send) && (msg.String() != "enter" || m.focus == paneURL):
 			method := methods[m.methodIdx]
 			url := m.urlInput.Value()
 			if url != "" {
 				m.responseModel.SetContent(fmt.Sprintf("Sending request %s %s ...", method, url))
-				requestComponents := make(map[string]string)
-				// TODO: populate auth and params as well when the panes are implemented
 				requestBody := m.bodyInput.Value()
-				requestComponents["body"] = requestBody
 				requestId := uuid.New()
-				responseComponents := make(map[string]string)
-				responseComponents["body"] = ""
-				responseComponents["headers"] = ""
 				m.requestId = requestId
-				m.history = append([]historyItem{{method: method, url: url, requestComponents: requestComponents, requestId: requestId, responseComponents: responseComponents}}, m.history...)
+				m.historyPos = 0
+				m.responseMeta = "Sending..."
+				m.history = append([]historyItem{{
+					method:         method,
+					url:            url,
+					requestBody:    requestBody,
+					requestHeaders: m.headersInput.Entries(),
+					requestID:      requestId,
+				}}, m.history...)
 				return m, m.DoRequest()
 			}
 
@@ -238,13 +249,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case paneHistory:
 				m.handleHistoryKeys(msg.String())
 			case paneResponse:
-				m.handleResponseKeys(msg.String())
-				var cmd tea.Cmd
-				m.responseModel, cmd = m.responseModel.Update(msg)
-				cmds = append(cmds, cmd)
-
-				m.responseHeadersModel, cmd = m.responseHeadersModel.Update(msg)
-				cmds = append(cmds, cmd)
+				if !m.handleResponseKeys(msg.String()) {
+					var cmd tea.Cmd
+					if m.responseTab == responseTabHeaders {
+						m.responseHeadersModel, cmd = m.responseHeadersModel.Update(msg)
+					} else {
+						m.responseModel, cmd = m.responseModel.Update(msg)
+					}
+					cmds = append(cmds, cmd)
+				}
 			}
 		}
 
@@ -288,9 +301,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if zone.Get("responseTabBody").InBounds(msg) {
 			m.setFocus(paneResponse)
 			m.responseTab = responseTabBody
+			m.resetActiveResponseXOffset()
 		} else if zone.Get("responseTabHeaders").InBounds(msg) {
 			m.setFocus(paneResponse)
 			m.responseTab = responseTabHeaders
+			m.resetActiveResponseXOffset()
 		} else if zone.Get("response").InBounds(msg) {
 			m.setFocus(paneResponse)
 		}
@@ -351,21 +366,50 @@ func (m *model) syncRequestTabFocus() {
 }
 
 func (m *model) sizeComponents() {
-	mainWidth := m.width - historyWidth - 4
-	if mainWidth < 20 {
-		mainWidth = 20
-	}
+	mainWidth, _, bodyHeight, responseHeight := layoutDimensions(m.width, m.height)
 
 	m.urlInput.SetWidth(mainWidth - methodWidth - 4)
 
-	bodyHeight := (m.height - urlBarHeight - helpHeight - 6) / 2
-	if bodyHeight < 3 {
-		bodyHeight = 3
-	}
 	m.bodyInput.SetWidth(mainWidth - 2)
 	m.bodyInput.SetHeight(bodyHeight)
 	m.headersInput.SetWidth(mainWidth - 4)
 	m.headersInput.SetHeight(bodyHeight)
+
+	// Persist viewport geometry on the model. View has a value receiver, so
+	// sizing these inside viewResponse only changes a temporary copy and causes
+	// scrolling to calculate offsets with a zero-height viewport.
+	viewportHeight := responseHeight - 4 // border frame, tab bar, and top padding
+	if viewportHeight < 1 {
+		viewportHeight = 1
+	}
+	viewportWidth := mainWidth - 3 // border frame and left content padding
+	if viewportWidth < 1 {
+		viewportWidth = 1
+	}
+	m.responseModel.SetWidth(viewportWidth)
+	m.responseModel.SetHeight(viewportHeight)
+	m.responseHeadersModel.SetWidth(viewportWidth)
+	m.responseHeadersModel.SetHeight(viewportHeight)
+}
+
+func layoutDimensions(width, height int) (mainWidth, contentHeight, bodyHeight, responseHeight int) {
+	mainWidth = width - historyWidth - 4
+	if mainWidth < 20 {
+		mainWidth = 20
+	}
+
+	contentHeight = height - helpHeight - 2
+	bodyHeight = (contentHeight - urlBarHeight - 2) / 2
+	if bodyHeight < 3 {
+		bodyHeight = 3
+	}
+
+	requestSectionHeight := bodyHeight + 2 // bordered content plus custom bottom border
+	responseHeight = contentHeight - urlBarHeight - requestSectionHeight
+	if responseHeight < 3 {
+		responseHeight = 3
+	}
+	return mainWidth, contentHeight, bodyHeight, responseHeight
 }
 
 func (m model) View() tea.View {
@@ -379,26 +423,12 @@ func (m model) View() tea.View {
 		return v
 	}
 
-	mainWidth := m.width - historyWidth - 4
-	if mainWidth < 20 {
-		mainWidth = 20
-	}
-
-	contentHeight := m.height - helpHeight - 2
+	mainWidth, contentHeight, bodyHeight, responseHeight := layoutDimensions(m.width, m.height)
 
 	// Render each pane via its own file's method
 	urlSection := zone.Mark("url", m.viewURL(mainWidth))
 
-	bodyHeight := (contentHeight - lipgloss.Height(urlSection) - 2) / 2
-	if bodyHeight < 3 {
-		bodyHeight = 3
-	}
 	requestSection := m.viewRequest(mainWidth, bodyHeight)
-
-	responseHeight := contentHeight - lipgloss.Height(urlSection) - lipgloss.Height(requestSection)
-	if responseHeight < 3 {
-		responseHeight = 3
-	}
 	responseSection := m.viewResponse(mainWidth, responseHeight)
 
 	rightCol := lipgloss.JoinVertical(lipgloss.Left, urlSection, requestSection, responseSection)
