@@ -426,6 +426,13 @@ func (r savedRequest) displayName() string {
 
 func (m *model) applySavedRequest(request savedRequest) {
 	m.clearResponseFilter()
+	if m.cancelRequest != nil {
+		m.cancelRequest()
+	}
+	m.cancelRequest = nil
+	m.requestContext = nil
+	m.requestId = uuid.New()
+	m.oauthLoginID = uuid.Nil
 	if m.socketIO != nil {
 		closeSocketIOSession(m.socketIO)
 		m.socketIO = nil

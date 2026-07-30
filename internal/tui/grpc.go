@@ -329,7 +329,7 @@ func (m model) grpcMetadata(ctx context.Context, resolver *variableResolver, set
 			return nil, fmt.Errorf("gRPC API keys must use header location")
 		}
 		md.Set(strings.ToLower(auth.apiKeyName), auth.apiKeyValue)
-	case authOAuth2ClientCredentials, authOAuth2AuthorizationCode:
+	case authOAuth2ClientCredentials, authOAuth2Password, authOAuth2RefreshToken, authOAuth2AuthorizationCode:
 		client, err := configuredClient(m.client, settings)
 		if err != nil {
 			return nil, fmt.Errorf("configure OAuth client: %w", err)
@@ -339,8 +339,10 @@ func (m model) grpcMetadata(ctx context.Context, resolver *variableResolver, set
 			return nil, fmt.Errorf("authorize gRPC request: %w", err)
 		}
 		md.Set("authorization", request.Header.Get("Authorization"))
-	case authDigest, authAWSSignatureV4:
+	case authDigest, authAWSSignatureV4, authHawk, authNTLM, authOAuth1:
 		return nil, fmt.Errorf("selected HTTP authentication mode is not supported by gRPC")
+	default:
+		return nil, fmt.Errorf("selected authentication mode is not supported by gRPC")
 	}
 	return md, nil
 }
