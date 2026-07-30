@@ -1773,7 +1773,6 @@ func quitConfirmationModal(viewportWidth int) string {
 		return style.
 			Width(rowWidth).
 			Align(lipgloss.Center).
-			ColorWhitespace(true).
 			Render(content)
 	}
 	message := row(quitModalTitleStyle, "Quit Courier?") + "\n" +
