@@ -483,3 +483,103 @@ components:
 		t.Fatalf("OpenAPI authorization-code config = %#v", auth)
 	}
 }
+
+func TestImportOpenAPIOperationParametersOverridePathParameters(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "parameters.yaml")
+	document := `openapi: 3.0.3
+paths:
+  /users:
+    parameters:
+      - in: query
+        name: limit
+        schema: {type: integer, default: 10}
+      - in: header
+        name: X-Mode
+        schema: {type: string, default: path}
+    get:
+      parameters:
+        - in: query
+          name: limit
+          schema: {type: integer, default: 20}
+        - in: header
+          name: X-Mode
+          schema: {type: string, default: operation}
+      responses:
+        "200": {description: OK}
+`
+	if err := os.WriteFile(path, []byte(document), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := NewModel()
+	if _, err := m.ImportOpenAPI(path); err != nil {
+		t.Fatal(err)
+	}
+	request := m.savedRequests[0]
+	if len(request.params) != 1 || request.params[0].key != "limit" || request.params[0].value != "20" {
+		t.Fatalf("overridden query parameters = %#v", request.params)
+	}
+	if len(request.headers) != 1 || request.headers[0].key != "X-Mode" || request.headers[0].value != "operation" {
+		t.Fatalf("overridden header parameters = %#v", request.headers)
+	}
+}
+
+func TestImportOpenAPISecurityRequirementsPreserveAndOrSemantics(t *testing.T) {
+	t.Run("rejects unrepresentable conjunction", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "combined-security.yaml")
+		document := `openapi: 3.0.3
+paths:
+  /reports:
+    get:
+      security:
+        - ApiKey: []
+          Bearer: []
+      responses:
+        "200": {description: OK}
+components:
+  securitySchemes:
+    ApiKey: {type: apiKey, in: header, name: X-API-Key}
+    Bearer: {type: http, scheme: bearer}
+`
+		if err := os.WriteFile(path, []byte(document), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		m := NewModel()
+		m.savedRequests = []savedRequest{{name: "existing", method: "GET", url: "https://example.test"}}
+		if _, err := m.ImportOpenAPI(path); err == nil || !strings.Contains(err.Error(), "combine multiple schemes") {
+			t.Fatalf("combined security import error = %v", err)
+		}
+		if len(m.savedRequests) != 1 || m.savedRequests[0].name != "existing" {
+			t.Fatalf("failed security import changed collection: %#v", m.savedRequests)
+		}
+	})
+
+	t.Run("uses later representable alternative", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "alternative-security.yaml")
+		document := `openapi: 3.0.3
+paths:
+  /reports:
+    get:
+      security:
+        - ApiKey: []
+          Bearer: []
+        - ApiKey: []
+      responses:
+        "200": {description: OK}
+components:
+  securitySchemes:
+    ApiKey: {type: apiKey, in: header, name: X-API-Key}
+    Bearer: {type: http, scheme: bearer}
+`
+		if err := os.WriteFile(path, []byte(document), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		m := NewModel()
+		if _, err := m.ImportOpenAPI(path); err != nil {
+			t.Fatal(err)
+		}
+		auth := m.savedRequests[0].auth
+		if auth.typeID != authAPIKey || auth.apiKeyName != "X-API-Key" {
+			t.Fatalf("selected security alternative = %#v", auth)
+		}
+	})
+}

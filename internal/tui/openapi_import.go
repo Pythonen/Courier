@@ -90,7 +90,7 @@ func (m *model) ImportOpenAPI(path string) (int, error) {
 				url:    strings.TrimRight(operationBaseURL, "/") + replaceOpenAPIPlaceholders(pathName),
 				body:   bodyConfig{mode: bodyNone, rawType: rawJSON},
 			}
-			parameters := append(append([]interface{}{}, pathParameters...), sliceValue(operation["parameters"])...)
+			parameters := importer.mergeParameters(pathParameters, sliceValue(operation["parameters"]))
 			importer.applyParameters(&request, parameters)
 			security := globalSecurity
 			if value, exists := operation["security"]; exists {
@@ -187,12 +187,52 @@ func (i *openAPIImporter) applyParameters(request *savedRequest, parameters []in
 	}
 }
 
+func (i *openAPIImporter) mergeParameters(pathParameters, operationParameters []interface{}) []interface{} {
+	merged := make([]interface{}, 0, len(pathParameters)+len(operationParameters))
+	positions := make(map[string]int)
+	add := func(raw interface{}, override bool) {
+		parameter := i.resolveMap(raw)
+		name := stringValue(parameter["name"])
+		location := stringValue(parameter["in"])
+		if name == "" || location == "" {
+			merged = append(merged, raw)
+			return
+		}
+		key := location + "\x00" + name
+		if position, exists := positions[key]; exists {
+			if override {
+				merged[position] = raw
+			}
+			return
+		}
+		positions[key] = len(merged)
+		merged = append(merged, raw)
+	}
+	for _, parameter := range pathParameters {
+		add(parameter, false)
+	}
+	for _, parameter := range operationParameters {
+		add(parameter, true)
+	}
+	return merged
+}
+
 func (i *openAPIImporter) authConfig(security []interface{}, baseURL string) authConfig {
 	if len(security) == 0 {
 		return authConfig{typeID: authNone}
 	}
-	requirement := mapValue(security[0])
-	for _, schemeName := range sortedMapKeys(requirement) {
+	combinedRequirement := false
+	for _, rawRequirement := range security {
+		requirement := mapValue(rawRequirement)
+		schemeNames := sortedMapKeys(requirement)
+		if len(schemeNames) == 0 {
+			return authConfig{typeID: authNone}
+		}
+		if len(schemeNames) > 1 {
+			combinedRequirement = true
+			continue
+		}
+		schemeName := schemeNames[0]
 		scheme := i.resolveMap(i.security[schemeName])
 		if scheme == nil {
 			continue
@@ -288,6 +328,13 @@ func (i *openAPIImporter) authConfig(security []interface{}, baseURL string) aut
 		case "openIdConnect":
 			i.addEnvironment(schemeName, "")
 			return authConfig{typeID: authBearer, bearerToken: "{{" + schemeName + "}}"}
+		}
+	}
+	if i.err == nil {
+		if combinedRequirement {
+			i.err = fmt.Errorf("OpenAPI security requirements combine multiple schemes, which Courier cannot represent in one authorization configuration")
+		} else {
+			i.err = fmt.Errorf("OpenAPI security requirements contain no supported scheme")
 		}
 	}
 	return authConfig{typeID: authNone}

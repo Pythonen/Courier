@@ -56,6 +56,22 @@ func TestPersistentCookieJarExpiresAndReplacesCookies(t *testing.T) {
 	}
 }
 
+func TestPersistentCookieJarRejectsPublicSuffixDomain(t *testing.T) {
+	jar := newPersistentCookieJar()
+	origin, _ := url.Parse("https://example.co.uk/")
+	other, _ := url.Parse("https://attacker.co.uk/")
+	for _, phase := range []string{"new", "cleared"} {
+		jar.SetCookies(origin, []*http.Cookie{{Name: "session", Value: "secret", Domain: "co.uk", Path: "/"}})
+		if records := jar.Snapshot(); len(records) != 0 {
+			t.Fatalf("%s jar persisted public-suffix cookie: %#v", phase, records)
+		}
+		if cookies := jar.Cookies(other); len(cookies) != 0 {
+			t.Fatalf("%s jar leaked public-suffix cookie to another registrable domain: %#v", phase, cookies)
+		}
+		jar.Clear()
+	}
+}
+
 func TestWorkspacePersistsCapturedCookieJar(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/login" {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -224,6 +226,73 @@ func TestGRPCUnaryUsesReflectionJSONMetadataAuthAndTrailers(t *testing.T) {
 	}
 	if got := md.Get("cookie"); len(got) != 1 || got[0] != "session=abc" {
 		t.Fatalf("cookie metadata = %#v", md)
+	}
+}
+
+func TestGRPCMetadataSupportsEveryOAuthTokenGrant(t *testing.T) {
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if err := request.ParseForm(); err != nil {
+			http.Error(response, err.Error(), http.StatusBadRequest)
+			return
+		}
+		grant := request.Form.Get("grant_type")
+		if grant == "" {
+			http.Error(response, "missing grant", http.StatusBadRequest)
+			return
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = response.Write([]byte(`{"access_token":"` + grant + `-token","token_type":"Bearer"}`))
+	}))
+	defer tokenServer.Close()
+
+	tests := []struct {
+		name string
+		auth authConfig
+		want string
+	}{
+		{
+			name: "client credentials",
+			auth: authConfig{typeID: authOAuth2ClientCredentials, oauthTokenURL: tokenServer.URL, oauthClientID: "client"},
+			want: "Bearer client_credentials-token",
+		},
+		{
+			name: "password",
+			auth: authConfig{typeID: authOAuth2Password, oauthTokenURL: tokenServer.URL, username: "user", password: "password"},
+			want: "Bearer password-token",
+		},
+		{
+			name: "refresh token",
+			auth: authConfig{typeID: authOAuth2RefreshToken, oauthTokenURL: tokenServer.URL, oauthRefreshToken: "refresh"},
+			want: "Bearer refresh_token-token",
+		},
+		{
+			name: "authorization code",
+			auth: authConfig{typeID: authOAuth2AuthorizationCode, oauthAccessToken: "cached-token", oauthTokenType: "Bearer"},
+			want: "Bearer cached-token",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			m := NewModel()
+			m.authInput.SetConfig(test.auth)
+			md, err := m.grpcMetadata(context.Background(), newVariableResolver(nil), m.settings.config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := md.Get("authorization"); len(got) != 1 || got[0] != test.want {
+				t.Fatalf("authorization metadata = %#v, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestGRPCMetadataRejectsUnsupportedAuthentication(t *testing.T) {
+	for _, authType := range []authType{authDigest, authAWSSignatureV4, authHawk, authNTLM, authOAuth1} {
+		m := NewModel()
+		m.authInput.SetConfig(authConfig{typeID: authType})
+		if _, err := m.grpcMetadata(context.Background(), newVariableResolver(nil), m.settings.config); err == nil {
+			t.Fatalf("gRPC authentication type %d was silently accepted", authType)
+		}
 	}
 }
 

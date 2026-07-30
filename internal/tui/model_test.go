@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"testing"
@@ -104,6 +105,33 @@ func TestResponseUpdatesMatchingHistoryOnly(t *testing.T) {
 	}
 	if m.history[0].responseHeaders != "X-Test: yes" {
 		t.Fatal("current response headers were not stored in history")
+	}
+}
+
+func TestLoadingSavedRequestInvalidatesInFlightHTTPResponse(t *testing.T) {
+	activeID := uuid.New()
+	requestContext, cancel := context.WithCancel(context.Background())
+	m := NewModel()
+	m.requestId = activeID
+	m.requestContext = requestContext
+	m.cancelRequest = cancel
+	m.history = []historyItem{{requestID: activeID, url: "https://example.test/slow"}}
+
+	m.applySavedRequest(savedRequest{method: "GET", url: "https://example.test/next"})
+	if requestContext.Err() != context.Canceled {
+		t.Fatal("loading a saved request did not cancel the in-flight request")
+	}
+	if m.requestId == activeID || m.cancelRequest != nil || m.requestContext != nil {
+		t.Fatalf("active request state was not invalidated: id=%s cancel=%v context=%v", m.requestId, m.cancelRequest != nil, m.requestContext != nil)
+	}
+
+	updated, _ := m.Update(responseMsg{requestID: activeID, responseBody: "late response", responseMeta: "200 OK"})
+	m = updated.(model)
+	if m.response != "" {
+		t.Fatalf("late response replaced the selected request display: %q", m.response)
+	}
+	if m.history[0].responseBody != "late response" {
+		t.Fatal("late response was not retained in its original history entry")
 	}
 }
 

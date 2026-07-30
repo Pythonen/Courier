@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/net/publicsuffix"
 )
 
 type storedCookie struct {
@@ -31,7 +33,7 @@ type persistentCookieJar struct {
 }
 
 func newPersistentCookieJar() *persistentCookieJar {
-	jar, _ := cookiejar.New(nil)
+	jar, _ := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
 	return &persistentCookieJar{jar: jar, cookies: make(map[string]storedCookie)}
 }
 
@@ -156,7 +158,7 @@ func (jar *persistentCookieJar) Add(rawURL, rawCookie string) error {
 func (jar *persistentCookieJar) Clear() {
 	jar.mu.Lock()
 	defer jar.mu.Unlock()
-	base, _ := cookiejar.New(nil)
+	base, _ := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
 	jar.jar = base
 	jar.cookies = make(map[string]storedCookie)
 }
@@ -174,6 +176,12 @@ func normalizedCookieDomain(host, attribute string) (string, bool, bool) {
 	attribute = strings.ToLower(strings.Trim(strings.TrimSpace(attribute), "."))
 	if attribute == "" {
 		return host, true, host != ""
+	}
+	if suffix, _ := publicsuffix.PublicSuffix(attribute); suffix == attribute {
+		if host != attribute {
+			return "", false, false
+		}
+		return host, true, true
 	}
 	if host == attribute {
 		return attribute, false, true
