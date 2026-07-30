@@ -21,26 +21,30 @@ type headerEntry struct {
 }
 
 type headersTable struct {
-	rows      []headerRow
-	cursorRow int
-	cursorCol int // 0 = key, 1 = value
-	focused   bool
-	width     int
-	height    int
-	viewport  viewport.Model
-	pendingD  bool // waiting for second 'd' in dd
+	rows             []headerRow
+	cursorRow        int
+	cursorCol        int // 0 = key, 1 = value
+	focused          bool
+	width            int
+	height           int
+	viewport         viewport.Model
+	pendingD         bool // waiting for second 'd' in dd
+	keyLabel         string
+	valueLabel       string
+	keyPlaceholder   string
+	valuePlaceholder string
 }
 
-func newHeaderRow() headerRow {
+func newEntryRow(keyPlaceholder, valuePlaceholder string) headerRow {
 	k := textinput.New()
 	k.Prompt = ""
-	k.Placeholder = "Header-Name"
+	k.Placeholder = keyPlaceholder
 	k.CharLimit = 256
 	k.Blur()
 
 	v := textinput.New()
 	v.Prompt = ""
-	v.Placeholder = "value"
+	v.Placeholder = valuePlaceholder
 	v.CharLimit = 2048
 	v.Blur()
 
@@ -48,8 +52,24 @@ func newHeaderRow() headerRow {
 }
 
 func newHeadersTable() headersTable {
+	return newKeyValueTable("Header", "Value", "Header-Name", "value")
+}
+
+func newParamsTable() headersTable {
+	return newKeyValueTable("Parameter", "Value", "parameter", "value")
+}
+
+func newCookiesTable() headersTable {
+	return newKeyValueTable("Cookie", "Value", "cookie-name", "value")
+}
+
+func newKeyValueTable(keyLabel, valueLabel, keyPlaceholder, valuePlaceholder string) headersTable {
 	return headersTable{
-		rows: []headerRow{newHeaderRow()},
+		rows:             []headerRow{newEntryRow(keyPlaceholder, valuePlaceholder)},
+		keyLabel:         keyLabel,
+		valueLabel:       valueLabel,
+		keyPlaceholder:   keyPlaceholder,
+		valuePlaceholder: valuePlaceholder,
 	}
 }
 
@@ -88,7 +108,7 @@ func (h *headersTable) SetEntries(entries []headerEntry) {
 	h.rows = make([]headerRow, len(entries))
 	keyCol, valCol := h.colWidths()
 	for i, entry := range entries {
-		row := newHeaderRow()
+		row := newEntryRow(h.keyPlaceholder, h.valuePlaceholder)
 		row.key.SetValue(entry.key)
 		row.value.SetValue(entry.value)
 		row.key.SetWidth(keyCol)
@@ -164,7 +184,7 @@ func (h *headersTable) UpdateNormal(keyStr string) {
 		h.pendingD = false
 	case "o":
 		h.pendingD = false
-		newRow := newHeaderRow()
+		newRow := newEntryRow(h.keyPlaceholder, h.valuePlaceholder)
 		keyCol, valCol := h.colWidths()
 		newRow.key.SetWidth(keyCol)
 		newRow.value.SetWidth(valCol)
@@ -213,8 +233,8 @@ func (h *headersTable) SetHeight(height int) {
 
 // colWidths returns the inner widths for key and value columns.
 func (h *headersTable) colWidths() (int, int) {
-	// Layout: │ <key> │ <value> │  — 5 chars of chrome (3 borders + 2 spaces)
-	inner := h.width - 5
+	// Layout: │ <key> │ <value> │ — 7 chars of chrome (3 borders + 4 spaces).
+	inner := h.width - 7
 	if inner < 20 {
 		inner = 20
 	}
@@ -243,8 +263,8 @@ func (h *headersTable) View() string {
 	b.WriteString("\n")
 
 	// Column headers
-	keyHeader := headerStyle.Width(keyCol).Render("Header")
-	valHeader := headerStyle.Width(valCol).Render("Value")
+	keyHeader := headerStyle.Width(keyCol).Render(h.keyLabel)
+	valHeader := headerStyle.Width(valCol).Render(h.valueLabel)
 	b.WriteString(bdr("│") + " " + keyHeader + " " + bdr("│") + " " + valHeader + " " + bdr("│"))
 	b.WriteString("\n")
 

@@ -1,0 +1,108 @@
+package tui
+
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+)
+
+func TestSaveLoadRenameAndDeleteResponseExample(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "workspace.json")
+	m := NewModel()
+	if err := m.LoadWorkspace(path); err != nil {
+		t.Fatal(err)
+	}
+	m.savedRequests = []savedRequest{{name: "Users / Get", method: "GET", url: "https://example.test/users/1", body: bodyConfig{mode: bodyNone}}}
+	m.activeSavedIndex = 0
+	m.responseStatusCode = 200
+	m.response = `{"id":1}`
+	m.responseRaw = `{"id":1}`
+	m.responseRawAvailable = true
+	m.responseHeaders = "Content-Type: application/json\nX-Request-Id: req-1"
+	m.responseMeta = "200 OK • 12ms • 8 B"
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'y', Mod: tea.ModCtrl})
+	m = updated.(model)
+	m.responseMeta = "200 OK • 10ms • 8 B"
+	if err := m.saveCurrentResponseExample(); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.savedRequests[0].examples; len(got) != 2 || got[0].name != "200 OK" || got[1].name != "200 OK 2" {
+		t.Fatalf("saved examples = %#v", got)
+	}
+	m.urlInput.SetValue("https://example.test/users/2")
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'w', Mod: tea.ModCtrl})
+	m = updated.(model)
+	if len(m.savedRequests[0].examples) != 2 {
+		t.Fatalf("request update discarded examples: %#v", m.savedRequests[0])
+	}
+
+	loaded := NewModel()
+	if err := loaded.LoadWorkspace(path); err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.savedRequests) != 1 || len(loaded.savedRequests[0].examples) != 2 || loaded.savedRequests[0].examples[0].responseRaw != `{"id":1}` {
+		t.Fatalf("loaded examples = %#v", loaded.savedRequests)
+	}
+	loaded.sidebarMode = sidebarExamples
+	loaded.examplePos = 0
+	loaded.handleHistoryKeys("enter")
+	if loaded.responseStatusCode != 200 || loaded.responseRaw != `{"id":1}` || loaded.activeSavedIndex != 0 {
+		t.Fatalf("loaded example response = status %d raw %q active %d", loaded.responseStatusCode, loaded.responseRaw, loaded.activeSavedIndex)
+	}
+	loaded.handleHistoryKeys("r")
+	loaded.collectionRenameInput.SetValue("Happy path")
+	updated, _ = loaded.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	loaded = updated.(model)
+	if loaded.savedRequests[0].examples[0].name != "Happy path" {
+		t.Fatalf("renamed example = %#v", loaded.savedRequests[0].examples)
+	}
+	loaded.handleHistoryKeys("d")
+	loaded.handleHistoryKeys("d")
+	if len(loaded.savedRequests[0].examples) != 1 {
+		t.Fatalf("examples after deletion = %#v", loaded.savedRequests[0].examples)
+	}
+}
+
+func TestExamplesSidebarKeepsMainColumnAlignment(t *testing.T) {
+	initTestZones()
+	m := NewModel()
+	m.savedRequests = []savedRequest{{
+		name: "Users / Get", method: "GET", url: "https://example.test/users/1", body: bodyConfig{mode: bodyNone},
+		examples: []savedExample{{name: "Success", statusCode: 200, responseBody: "ok", responseRaw: "ok", responseRawAvailable: true}},
+	}}
+	m.sidebarMode = sidebarExamples
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	m = updated.(model)
+	mainWidth, contentHeight, bodyHeight, responseHeight := layoutDimensions(m.width, m.height)
+	history := m.viewHistory(contentHeight)
+	if !strings.Contains(stripANSI(history), "Examples") || !strings.Contains(stripANSI(history), "Users / Get") {
+		t.Fatalf("examples sidebar = %q", stripANSI(history))
+	}
+	rightColumn := lipgloss.JoinVertical(lipgloss.Left, m.viewURL(mainWidth), m.viewRequest(mainWidth, bodyHeight), m.viewResponse(mainWidth, responseHeight))
+	if got, want := lipgloss.Height(rightColumn), lipgloss.Height(history); got != want {
+		t.Fatalf("example sidebar alignment: main=%d sidebar=%d", got, want)
+	}
+}
+
+func TestSaveExampleRequiresSavedRequestAndResponse(t *testing.T) {
+	m := NewModel()
+	if err := m.saveCurrentResponseExample(); err == nil || !strings.Contains(err.Error(), "collection request") {
+		t.Fatalf("unsaved request error = %v", err)
+	}
+	m.savedRequests = []savedRequest{{name: "Request", method: "GET", url: "https://example.test"}}
+	m.activeSavedIndex = 0
+	if err := m.saveCurrentResponseExample(); err == nil || !strings.Contains(err.Error(), "send the request") {
+		t.Fatalf("empty response error = %v", err)
+	}
+}
+
+func TestResponseHeaderEntryRoundTrip(t *testing.T) {
+	formatted := "Content-Type: application/json\nSet-Cookie: a=1\nSet-Cookie: b=2"
+	if got := formattedResponseHeaders(responseHeaderEntries(formatted)); got != formatted {
+		t.Fatalf("formatted headers = %q", got)
+	}
+}

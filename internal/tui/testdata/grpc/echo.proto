@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package courier.fixture;
+
+message EchoMessage {
+  string text = 1;
+}
+
+service EchoService {
+  rpc Echo(EchoMessage) returns (EchoMessage);
+  rpc Chat(stream EchoMessage) returns (stream EchoMessage);
+}

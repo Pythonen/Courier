@@ -13,6 +13,8 @@ const (
 	requestTabParams
 	requestTabAuth
 	requestTabHeaders
+	requestTabCookies
+	requestTabTests
 	requestTabCount
 )
 
@@ -26,7 +28,9 @@ func (m *model) handleRequestKeys(keyStr string) {
 }
 
 func (m model) viewRequest(mainWidth, height int) string {
-	m.bodyInput.SetHeight(height - 2)
+	m.bodyInput.SetHeight(max(1, height-3))
+	innerWidth := max(1, mainWidth-2)
+	innerHeight := max(1, height-1)
 
 	borderColor := lipgloss.Color("240")
 	if m.focus == paneRequest {
@@ -45,36 +49,67 @@ func (m model) viewRequest(mainWidth, height int) string {
 
 	bodyTab := zone.Mark("bodyTab", inactiveTabStyle.Render("Body"))
 	headersTab := zone.Mark("headersTab", inactiveTabStyle.Render("Headers"))
-	authTab := zone.Mark("authTab", inactiveTabStyle.Render("Authorization"))
-	paramsTab := zone.Mark("paramsTab", inactiveTabStyle.Render("Params"))
+	authTab := zone.Mark("authTab", inactiveTabStyle.Render("Auth"))
+	paramsTab := zone.Mark("paramsTab", inactiveTabStyle.Render("Query"))
+	cookiesTab := zone.Mark("cookiesTab", inactiveTabStyle.Render("Cookies"))
+	testsTab := zone.Mark("testsTab", inactiveTabStyle.Render("Tests"))
 
 	switch m.requestTab {
 	case requestTabBody:
 		bodyTab = activeTabStyle.Render("Body")
 	case requestTabParams:
-		paramsTab = activeTabStyle.Render("Params")
+		paramsTab = activeTabStyle.Render("Query")
 	case requestTabAuth:
-		authTab = activeTabStyle.Render("Authorization")
+		authTab = activeTabStyle.Render("Auth")
 	case requestTabHeaders:
 		headersTab = activeTabStyle.Render("Headers")
+	case requestTabCookies:
+		cookiesTab = activeTabStyle.Render("Cookies")
+	case requestTabTests:
+		testsTab = activeTabStyle.Render("Tests")
 	}
-	tabBar := bodyTab + " " + paramsTab + " " + authTab + " " + headersTab
+	tabBar := bodyTab + paramsTab + authTab + headersTab + cookiesTab + testsTab
+	tabBar = truncateLines(tabBar, innerWidth)
 
 	// Conditional content based on active tab
 	var content string
 	switch m.requestTab {
 	case requestTabHeaders:
 		content = m.headersInput.View()
+	case requestTabParams:
+		content = m.paramsInput.View()
+	case requestTabAuth:
+		content = m.authInput.View()
 	case requestTabBody:
-		content = m.bodyInput.View()
-	default:
-		content = hintStyle.Render("  (not implemented)")
+		content = m.viewBody()
+	case requestTabCookies:
+		content = m.cookiesInput.View()
+	case requestTabTests:
+		content = m.testsInput.View()
+	}
+	if m.settingsOpen {
+		tabBar = activeTabStyle.Render("Settings") + hintStyle.Render("  Request transport")
+		content = m.settings.View()
+	} else if m.environmentOpen {
+		tabBar = activeTabStyle.Render("Environment: "+m.activeEnvironmentName()) + hintStyle.Render("  p:next n:new r:rename dd:delete")
+		if m.environmentNameOpen {
+			action := "Rename: "
+			if m.environmentCreating {
+				action = "New: "
+			}
+			tabBar = activeTabStyle.Render(action) + m.environmentNameInput.View()
+		}
+		content = m.variablesInput.View()
 	}
 
-	box := zone.Mark("request", border.
-		Width(mainWidth).
-		Height(height).
-		Render(tabBar+"\n"+content))
+	content = truncateLines(content, innerWidth)
+	canvas := lipgloss.NewStyle().
+		Width(innerWidth).
+		MaxWidth(innerWidth).
+		Height(innerHeight).
+		MaxHeight(innerHeight).
+		Render(tabBar + "\n" + content)
+	box := zone.Mark("request", border.Render(canvas))
 
 	// Build custom bottom border with mode indicator embedded
 	bdrStyle := lipgloss.NewStyle().Foreground(borderColor)
@@ -88,13 +123,12 @@ func (m model) viewRequest(mainWidth, height int) string {
 		}
 	}
 
-	// +2 for the left/right border columns
-	innerWidth := mainWidth + 2
+	bottomInnerWidth := max(1, mainWidth-2)
 	if modeText != "" {
 		modeRendered := modeIndicatorStyle.Render(modeText)
 		modeWidth := lipgloss.Width(modeRendered)
 		leftDash := 2
-		rightDash := innerWidth - leftDash - modeWidth - 2 // -2 for corners
+		rightDash := bottomInnerWidth - leftDash - modeWidth
 		if rightDash < 1 {
 			rightDash = 1
 		}
@@ -103,7 +137,7 @@ func (m model) viewRequest(mainWidth, height int) string {
 			bdrStyle.Render(strings.Repeat("─", rightDash)+"╯")
 		box += "\n" + bottomLine
 	} else {
-		bottomLine := bdrStyle.Render("╰" + strings.Repeat("─", innerWidth-2) + "╯")
+		bottomLine := bdrStyle.Render("╰" + strings.Repeat("─", bottomInnerWidth) + "╯")
 		box += "\n" + bottomLine
 	}
 
