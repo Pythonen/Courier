@@ -48,4 +48,24 @@ var (
 	modeIndicatorStyle = lipgloss.NewStyle().
 				Bold(true).
 				Foreground(lipgloss.Color("212"))
+
+	quitModalStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("212")).
+			Foreground(lipgloss.Color("252")).
+			Background(lipgloss.Color("235")).
+			Padding(1, 0)
+
+	quitModalTitleStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("212")).
+				Background(lipgloss.Color("235"))
+
+	quitModalBodyStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("252")).
+				Background(lipgloss.Color("235"))
+
+	quitModalHintStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("241")).
+				Background(lipgloss.Color("235"))
 )
