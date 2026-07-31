@@ -51,9 +51,6 @@ homebrew_casks:
       owner: Pythonen
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    commit_author:
-      name: courier-release-bot
-      email: 41898282+github-actions[bot]@users.noreply.github.com
     homepage: https://github.com/Pythonen/Courier
     description: Terminal UI client for HTTP, WebSocket, gRPC, and MQTT APIs
     skip_upload: auto
@@ -75,4 +72,3 @@ changelog:
       - "^docs:"
       - "^test:"
       - "^chore:"
-
