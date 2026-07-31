@@ -51,3 +51,6 @@ go test ./...
 
 GitHub Actions runs tests and lint on pull requests and pushes to `main`.
 Your PR should be green before merge.
+
+Release maintainer setup and tagging instructions are in
+[`docs/RELEASING.md`](./docs/RELEASING.md).

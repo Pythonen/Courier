@@ -1,0 +1,78 @@
+version: 2
+
+project_name: courier
+
+builds:
+  - id: courier
+    main: ./cmd
+    binary: courier
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - >-
+        -s -w
+        -X main.version={{ .Version }}
+        -X main.commit={{ .Commit }}
+        -X main.date={{ .CommitDate }}
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: courier
+    ids:
+      - courier
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+
+checksum:
+  name_template: courier_checksums.txt
+
+homebrew_casks:
+  - name: courier
+    ids:
+      - courier
+    binaries:
+      - courier
+    repository:
+      owner: Pythonen
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    commit_author:
+      name: courier-release-bot
+      email: 41898282+github-actions[bot]@users.noreply.github.com
+    homepage: https://github.com/Pythonen/Courier
+    description: Terminal UI client for HTTP, WebSocket, gRPC, and MQTT APIs
+    skip_upload: auto
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/courier"]
+          end
+
+release:
+  prerelease: auto
+
+changelog:
+  use: git
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
