@@ -18,7 +18,7 @@ Built-in method presets are GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS, TRACE,
 
 ### Install with Homebrew
 
-Once the first release is published, install Courier from its Homebrew tap:
+You can install Courier via brew tap:
 
 ```bash
 brew install --cask Pythonen/tap/courier
