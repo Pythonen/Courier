@@ -14,6 +14,22 @@ Courier targets the local, terminal-feasible API-client portion of Postman. It i
 
 Built-in method presets are GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS, TRACE, COPY, LINK, UNLINK, PURGE, LOCK, UNLOCK, PROPFIND, and VIEW. Any valid custom HTTP method token can also be entered, imported, saved, rerun, mocked, and exported. Courier captures response cookies in a local persistent cookie jar and automatically sends matching cookies on later requests.
 
+## Table of contents
+
+- [Run Courier](#run-courier)
+  - [Install with Homebrew](#install-with-homebrew)
+  - [Prerequisites](#prerequisites)
+  - [Start directly](#start-directly)
+  - [Or build a binary](#or-build-a-binary)
+- [Basic controls](#basic-controls)
+  - [Global controls](#global-controls)
+  - [Request editor](#request-editor)
+  - [Saved requests, examples, and history](#saved-requests-examples-and-history)
+  - [Transport and protocol usage](#transport-and-protocol-usage)
+  - [Authentication and variables](#authentication-and-variables)
+  - [Response pane](#response-pane)
+- [Response assertions](#response-assertions)
+
 ## Run Courier
 
 ### Install with Homebrew
@@ -163,6 +179,8 @@ go build -o courier ./cmd
 
 ## Basic controls
 
+### Global controls
+
 - `Tab` / `Shift+Tab`: move between panes
 - `Ctrl+O`: cycle request method
 - `O`: enter a custom HTTP method
@@ -178,7 +196,7 @@ go build -o courier ./cmd
 - `Ctrl+P`: cycle the sidebar through request history, the saved collection, saved response examples, and the persistent cookie jar
 - `Ctrl+C`: quit
 
-Inside the request pane:
+### Request editor
 
 - `Left` / `Right`: switch request tabs
 - `i` / `Esc`: enter or leave input mode
@@ -191,6 +209,8 @@ Inside the request pane:
 
 GraphQL mode provides separate query, variables JSON, and optional operation-name fields. Use `j`/`k` to choose a field and `i` to edit it. Courier validates the variables document, resolves `{{environment}}` templates in all three fields, and sends the standard JSON GraphQL envelope with `application/json` content type.
 
+### Saved requests, examples, and history
+
 Inside the saved collection, use `j`/`k` to choose a request, `Enter` to load it, `r` to rename it, `c` to duplicate it, and `dd` to delete it. Names such as `Users / Create user` organize requests into folder paths and can be selected by folder name in the collection runner. Once a saved request is loaded, `Ctrl+W` updates it in place while preserving its name; duplicate it first when you want a “Save As” workflow. Saved requests preserve the method, URL, query parameters, headers, cookies, authorization, body configuration, and tests. Environment values and saved requests are written atomically to the workspace file, which Courier creates with owner-only permissions (`0600`). Since authorization values may contain secrets, treat that file as sensitive.
 
 After sending a loaded collection request, press `Ctrl+Y` to attach the response as a named example. Cycle to the Examples sidebar with `Ctrl+P`; use `j`/`k` and `Enter` to inspect examples, `r` to rename one, and `dd` to delete it. Examples retain status, headers, raw and formatted bodies, survive request updates and duplication, and round-trip through Postman Collection v2.1 imports and exports.
@@ -198,6 +218,8 @@ After sending a loaded collection request, press `Ctrl+Y` to attach the response
 Request history is also stored locally in the workspace and restores both the request configuration and captured response. The newest 100 entries are retained, subject to a 25 MiB serialized-history cap. Use `j`/`k` and `Enter` to reopen an entry, or `dd` to delete it permanently. History may contain authorization values and response data, so it has the same sensitivity as saved requests.
 
 The Cookies request tab adds explicit cookies to that saved request. Matching cookies captured from HTTP, WebSocket, and Socket.IO responses are merged from the persistent workspace jar. Cycle the sidebar to Cookies to inspect them; use `j`/`k` and `dd` to delete an individual stored cookie. Session cookies are intentionally retained across Courier restarts so terminal collection runs can continue authenticated workflows; use `-clear-cookies` when you want a clean jar.
+
+### Transport and protocol usage
 
 Transport settings include redirect following, request timeout, HTTP protocol selection, a proxy URL and bypass list, TLS certificate verification, a custom PEM CA bundle, and mutual-TLS client credentials. Proxies support `http`, `https`, `socks4`, `socks4a`, `socks5`, and `socks5h` URLs; credentials can be included in the URL, and the comma-separated bypass list accepts hosts, domain suffixes, IP addresses, and CIDR ranges. SOCKS4A and SOCKS5H resolve target hostnames through the proxy, while SOCKS4 and SOCKS5 resolve them locally. Client credentials can be a PEM certificate/private-key pair or a modern PKCS#12 `.p12`/`.pfx` bundle with an optional passphrase. Press `p` in the settings pane to switch between Network and TLS pages. HTTP protocol selection supports Auto negotiation, forced HTTP/1.x, and forced HTTP/2; use `h`/`l` or `Space` on the HTTP version row, and verify the negotiated protocol in the response metadata. TLS verification remains enabled by default; PEM certificate and key paths must be configured together, and PEM and PFX identities are mutually exclusive. Paths, proxy fields, and the PFX passphrase support the same `{{environment}}` templates as requests. These settings are persisted in the owner-only local workspace and honored by HTTP, WebSocket, Socket.IO, gRPC, OAuth token acquisition, and the headless collection runner. MQTT uses a direct raw TCP broker connection and rejects proxy configuration explicitly. Treat the workspace as sensitive when it contains literal proxy credentials or a PFX passphrase.
 
@@ -214,6 +236,8 @@ For Socket.IO, use `socketio://host` or `socketios://host` to select the Socket.
 For MQTT, enter `mqtt://host/topic` for plaintext or `mqtts://host/topic` for TLS, then press `Ctrl+K` (or send once) to connect. Courier supports MQTT 5.0 by default and MQTT 3.1.1 with `version=3.1.1`. Press `Ctrl+S` to publish the current Body to the URL-path topic; Binary body mode publishes the selected file bytes. Incoming and outgoing publishes appear in the response transcript, with binary payloads represented as base64. Basic Auth supplies the broker username and password. Headers become MQTT 5 user properties, and TLS uses the same certificate verification, custom CA, and mutual-TLS settings as HTTPS.
 
 MQTT controls can be placed in the URL query or Params tab: `qos=0|1|2`, `retain=true|false`, `clean_start=true|false`, `keep_alive=30s`, `client_id=name`, and repeated `subscribe=topic:qos` entries. Last-will settings use `will_topic`, `will_payload`, `will_qos`, and `will_retain`. Press `Ctrl+K` or `Ctrl+X` to disconnect. Response assertions and extraction actions are evaluated against the completed transcript; the synthetic connected status is `200` and `header.MQTT-Version` exposes the negotiated configuration. Saved MQTT requests remain available in collections, while live broker sessions are intentionally not executed by the headless collection runner. MQTT is implemented with native Go protocol clients and does not embed or execute a scripting runtime.
+
+### Authentication and variables
 
 JWT Bearer auth generates and signs a fresh token for every request using native cryptography. It supports HS256/384/512, RS256/384/512, PS256/384/512, and ES256/384/512; HMAC secrets can be plain or base64-encoded, while asymmetric keys can be an inline PEM value or a path to a PKCS #8, PKCS #1, or SEC 1 PEM private key. Configure JSON claims, custom JWT headers, the authorization prefix, and header or query placement. Use `h`/`l` to choose the algorithm, `Space` to toggle placement, and `b` to toggle base64-secret decoding. All JWT fields support environment templates and persist with saved requests.
 
@@ -232,6 +256,8 @@ OAuth 1.0 signs requests natively without an embedded scripting runtime. It supp
 Environment variables use `{{name}}` templates and are resolved in URLs, query parameters, headers, cookies, authorization, bodies, multipart fields, and file paths. Supported dynamic variables include `{{$guid}}`, `{{$randomUUID}}`, `{{$timestamp}}`, `{{$isoTimestamp}}`, and `{{$randomInt}}`.
 
 The environment editor supports multiple named local profiles. Press `p` to cycle profiles, `n` to create one, `r` to rename the active profile, and `dd` to delete it. Use `-environment NAME` to select a profile for collection runs or exports. Postman environment imports retain their environment name and become local profiles.
+
+### Response pane
 
 Inside the response pane, use `Left`/`Right` (or `h`/`l`) to switch tabs and uppercase `H`/`L` to scroll long lines horizontally. Press `/` to search the active body, headers, or tests tab, then use `n` and `N` to move between matches. Press `f` to filter a JSON response with JSONPath or an XML/HTML response with XPath; predicates, wildcards, recursion, array unions, and slices are supported. Press `F` to clear the filter. Filtering only changes the displayed body—exports, examples, assertions, extraction actions, and history continue to use the complete original response. Response export paths also support environment templates. Courier refuses to overwrite an existing export file and creates new files with owner-only permissions (`0600`). Structured filters are evaluated by native Go parsers and do not execute response code.
 
