@@ -1675,11 +1675,7 @@ func (m model) View() tea.View {
 	urlSection := zone.Mark("url", m.viewURL(mainWidth))
 
 	requestSection := m.viewRequest(mainWidth, bodyHeight)
-	// Bubble Tea terminals consume one physical row between the stacked main
-	// column and the help line. Give that row to the response border so its
-	// bottom edge visually aligns with the history border. The content viewport
-	// remains fixed, so scrolling cannot change this geometry.
-	responseSection := m.viewResponse(mainWidth, responseHeight+1)
+	responseSection := m.viewResponse(mainWidth, responseHeight)
 
 	rightCol := lipgloss.JoinVertical(lipgloss.Left, urlSection, requestSection, responseSection)
 	historySection := m.viewHistory(contentHeight)
