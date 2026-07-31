@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	uuid "github.com/google/uuid"
 	zone "github.com/lrstanley/bubblezone/v2"
 )
@@ -17,6 +18,145 @@ var testZoneOnce sync.Once
 
 func initTestZones() {
 	testZoneOnce.Do(func() { zone.NewGlobal() })
+}
+
+func TestCtrlCRequiresConfirmationBeforeQuitting(t *testing.T) {
+	initTestZones()
+	m := NewModel()
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	m = updated.(model)
+	cancelled := false
+	m.cancelRequest = func() { cancelled = true }
+	ctrlC := tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
+
+	updated, cmd := m.Update(ctrlC)
+	m = updated.(model)
+	if cmd == nil {
+		t.Fatal("first Ctrl-C did not schedule the confirmation timeout")
+	}
+	if !m.quitConfirmOpen {
+		t.Fatal("first Ctrl-C did not open quit confirmation")
+	}
+	if cancelled {
+		t.Fatal("first Ctrl-C cancelled active work")
+	}
+	const quitPrompt = "Press Ctrl-C again to close the application."
+	view := m.View().Content
+	if !strings.Contains(view, quitPrompt) {
+		t.Fatal("quit confirmation message was not rendered")
+	}
+	promptColumn := -1
+	for _, line := range strings.Split(ansi.Strip(view), "\n") {
+		if byteIndex := strings.Index(line, quitPrompt); byteIndex >= 0 {
+			promptColumn = ansi.StringWidth(line[:byteIndex])
+			break
+		}
+	}
+	centerDelta := 2*promptColumn + len(quitPrompt) - m.width
+	if promptColumn < 0 || centerDelta < -1 || centerDelta > 1 {
+		t.Fatalf("quit confirmation prompt starts at column %d in a %d-column viewport", promptColumn, m.width)
+	}
+
+	updated, cmd = m.Update(tea.KeyReleaseMsg{Code: 'c', Mod: tea.ModCtrl})
+	m = updated.(model)
+	if cmd != nil || !m.quitConfirmOpen || cancelled {
+		t.Fatal("Ctrl-C key release triggered the confirmed quit action")
+	}
+
+	updated, cmd = m.Update(ctrlC)
+	m = updated.(model)
+	if m.quitConfirmOpen {
+		t.Fatal("second Ctrl-C left quit confirmation open")
+	}
+	if !cancelled {
+		t.Fatal("second Ctrl-C did not cancel active work")
+	}
+	if cmd == nil {
+		t.Fatal("second Ctrl-C did not return a quit command")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("second Ctrl-C command returned %T, want tea.QuitMsg", cmd())
+	}
+}
+
+func TestQuitConfirmationBlocksInputAndEscapeCancels(t *testing.T) {
+	m := NewModel()
+	originalFocus := m.focus
+	ctrlC := tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
+
+	updated, _ := m.Update(ctrlC)
+	m = updated.(model)
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	m = updated.(model)
+	if cmd != nil || !m.quitConfirmOpen || m.focus != originalFocus {
+		t.Fatal("quit confirmation did not block unrelated input")
+	}
+
+	updated, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m = updated.(model)
+	if cmd != nil {
+		t.Fatal("Escape returned a command while cancelling quit")
+	}
+	if m.quitConfirmOpen {
+		t.Fatal("Escape did not close quit confirmation")
+	}
+
+	updated, cmd = m.Update(ctrlC)
+	m = updated.(model)
+	if cmd == nil || !m.quitConfirmOpen {
+		t.Fatal("Ctrl-C after cancellation did not start a fresh confirmation")
+	}
+}
+
+func TestQuitConfirmationExpiresWithoutAffectingApplication(t *testing.T) {
+	m := NewModel()
+	originalFocus := m.focus
+	cancelled := false
+	m.cancelRequest = func() { cancelled = true }
+	ctrlC := tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
+
+	updated, _ := m.Update(ctrlC)
+	m = updated.(model)
+	firstID := m.quitConfirmID
+
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m = updated.(model)
+	updated, _ = m.Update(ctrlC)
+	m = updated.(model)
+	secondID := m.quitConfirmID
+	if firstID == secondID {
+		t.Fatal("new quit confirmation reused the previous timeout ID")
+	}
+
+	updated, cmd := m.Update(quitConfirmationExpiredMsg{id: firstID})
+	m = updated.(model)
+	if cmd != nil || !m.quitConfirmOpen || m.quitConfirmID != secondID {
+		t.Fatal("stale timeout closed the newer quit confirmation")
+	}
+
+	updated, cmd = m.Update(quitConfirmationExpiredMsg{id: secondID})
+	m = updated.(model)
+	if cmd != nil || m.quitConfirmOpen || m.quitConfirmID != uuid.Nil {
+		t.Fatal("current timeout did not close the quit confirmation")
+	}
+	if cancelled || m.focus != originalFocus {
+		t.Fatal("quit confirmation timeout affected underlying application state")
+	}
+}
+
+func TestQuitConfirmationModalHasUniformBackground(t *testing.T) {
+	modal := quitConfirmationModal(120)
+	width, height := lipgloss.Size(modal)
+	canvas := lipgloss.NewCanvas(width, height)
+	canvas.Compose(lipgloss.NewLayer(modal))
+
+	for y := 1; y < height-1; y++ {
+		for x := 1; x < width-1; x++ {
+			if cell := canvas.CellAt(x, y); cell == nil || cell.Style.Bg == nil {
+				t.Fatalf("modal background missing at cell (%d, %d)", x, y)
+			}
+		}
+	}
 }
 
 func TestEnterSendsAndSnapshotsRequest(t *testing.T) {

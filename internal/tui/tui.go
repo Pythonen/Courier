@@ -20,10 +20,11 @@ import (
 )
 
 const (
-	helpHeight   = 3
-	urlBarHeight = 3
-	historyWidth = 28
-	methodWidth  = 10
+	helpHeight               = 3
+	urlBarHeight             = 3
+	historyWidth             = 28
+	methodWidth              = 10
+	quitConfirmationDuration = 5 * time.Second
 )
 
 // Pane focus targets
@@ -122,6 +123,10 @@ const (
 	modeInsert
 )
 
+type quitConfirmationExpiredMsg struct {
+	id uuid.UUID
+}
+
 type keymap struct {
 	next, prev, send, cancel, connect, save, saveExample, exportCurl, exportResponse, collections, settings, environment, cycleMethod, editMethod, quit key.Binding
 }
@@ -211,6 +216,8 @@ type model struct {
 	collectionRenameOpen  bool
 	collectionRenameInput textinput.Model
 	sidebarMode           sidebarMode
+	quitConfirmOpen       bool
+	quitConfirmID         uuid.UUID
 
 	focus     pane
 	inputMode inputMode
@@ -384,6 +391,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+	case quitConfirmationExpiredMsg:
+		if m.quitConfirmOpen && msg.id == m.quitConfirmID {
+			m.quitConfirmOpen = false
+			m.quitConfirmID = uuid.Nil
+		}
+		return m, nil
+
 	case oauthLoginMsg:
 		if msg.id != m.oauthLoginID {
 			break
@@ -812,6 +826,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch {
 		case key.Matches(msg, m.keymap.quit):
+			if _, released := msg.(tea.KeyReleaseMsg); released {
+				return m, nil
+			}
+			if !m.quitConfirmOpen {
+				m.quitConfirmOpen = true
+				m.quitConfirmID = uuid.New()
+				id := m.quitConfirmID
+				return m, tea.Tick(quitConfirmationDuration, func(time.Time) tea.Msg {
+					return quitConfirmationExpiredMsg{id: id}
+				})
+			}
+			if msg.Key().IsRepeat {
+				return m, nil
+			}
+			m.quitConfirmOpen = false
+			m.quitConfirmID = uuid.Nil
 			if m.socketIO != nil {
 				closeSocketIOSession(m.socketIO)
 			}
@@ -827,6 +857,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			return m, tea.Quit
+
+		case m.quitConfirmOpen:
+			if msg.String() == "esc" {
+				m.quitConfirmOpen = false
+				m.quitConfirmID = uuid.Nil
+			}
+			return m, nil
 
 		case m.methodEditOpen:
 			switch msg.String() {
@@ -1414,6 +1451,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sizeComponents()
 
 	case tea.MouseReleaseMsg:
+		if m.quitConfirmOpen {
+			return m, nil
+		}
 		if msg.Button != tea.MouseLeft {
 			return m, nil
 		}
@@ -1700,8 +1740,42 @@ func (m model) View() tea.View {
 		m.keymap.quit,
 	}))
 
-	v.SetContent(zone.Scan(layout + "\n" + helpView))
+	content := zone.Scan(layout + "\n" + helpView)
+	if m.quitConfirmOpen {
+		content = m.viewQuitConfirmation(content)
+	}
+	v.SetContent(content)
 	return v
+}
+
+func (m model) viewQuitConfirmation(content string) string {
+	viewportWidth := max(1, m.width)
+	viewportHeight := max(1, m.height)
+	modal := quitConfirmationModal(viewportWidth)
+	modalWidth, modalHeight := lipgloss.Size(modal)
+	x := max(0, (viewportWidth-modalWidth)/2)
+	y := max(0, (viewportHeight-modalHeight)/2)
+
+	return lipgloss.NewCompositor(
+		lipgloss.NewLayer(content),
+		lipgloss.NewLayer(modal).X(x).Y(y).Z(1),
+	).Render()
+}
+
+func quitConfirmationModal(viewportWidth int) string {
+	modalInnerWidth := min(46, max(10, viewportWidth-6))
+	rowWidth := modalInnerWidth + 4
+	row := func(style lipgloss.Style, content string) string {
+		return style.
+			Width(rowWidth).
+			Align(lipgloss.Center).
+			Render(content)
+	}
+	message := row(quitModalTitleStyle, "Quit Courier?") + "\n" +
+		row(quitModalBodyStyle, " ") + "\n" +
+		row(quitModalBodyStyle, "Press Ctrl-C again to close the application.") + "\n" +
+		row(quitModalHintStyle, "Esc to cancel")
+	return quitModalStyle.Render(message)
 }
 
 func formatHeaders(h http.Header) string {
