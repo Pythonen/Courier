@@ -38,6 +38,21 @@ archives:
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
 
+  - id: linux-binaries
+    ids:
+      - courier
+    formats:
+      - binary
+    format_overrides:
+      - goos: darwin
+        formats:
+          - none
+      - goos: windows
+        formats:
+          - none
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_linux_{{ .Arch }}
+
 checksum:
   name_template: courier_checksums.txt
 
