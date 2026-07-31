@@ -16,6 +16,18 @@ Built-in method presets are GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS, TRACE,
 
 ## Run Courier
 
+### Install with Homebrew
+
+Once the first release is published, install Courier from its Homebrew tap:
+
+```bash
+brew install --cask Pythonen/tap/courier
+```
+
+Upgrade an existing installation with `brew upgrade --cask courier`. Release
+maintainer setup and tagging instructions are in
+[`docs/RELEASING.md`](./docs/RELEASING.md).
+
 ### Prerequisites
 
 - Go 1.25+

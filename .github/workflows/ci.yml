@@ -40,3 +40,16 @@ jobs:
         uses: golangci/golangci-lint-action@v9
         with:
           version: latest
+
+  release-config:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Validate GoReleaser configuration
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: check

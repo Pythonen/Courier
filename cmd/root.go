@@ -18,7 +18,14 @@ import (
 	zone "github.com/lrstanley/bubblezone/v2"
 )
 
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
+	versionFlag := flag.Bool("version", false, "print version information and exit")
 	workspaceFlag := flag.String("workspace", "", "path to the local Courier workspace JSON file")
 	activeEnvironmentFlag := flag.String("environment", "", "select a named local environment")
 	collectionFlag := flag.String("import-postman", "", "import a Postman Collection v2 JSON file")
@@ -49,6 +56,10 @@ func main() {
 	setCookieFlag := flag.String("set-cookie", "", "add a Set-Cookie value to the local workspace jar, then exit")
 	cookieURLFlag := flag.String("cookie-url", "", "absolute request URL used with -set-cookie")
 	flag.Parse()
+	if *versionFlag {
+		fmt.Printf("courier %s (commit %s, built %s)\n", version, commit, date)
+		return
+	}
 	workspacePath := *workspaceFlag
 	if workspacePath == "" {
 		var err error
