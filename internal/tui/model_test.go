@@ -420,8 +420,10 @@ func TestResponsePaneKeepsHeightWhileScrolling(t *testing.T) {
 func TestMainColumnBottomAlignsWithHistory(t *testing.T) {
 	initTestZones()
 	var sizes []tea.WindowSizeMsg
-	for height := 16; height <= 80; height++ {
-		sizes = append(sizes, tea.WindowSizeMsg{Width: 160, Height: height})
+	for _, width := range []int{80, 120, 160, 320} {
+		for height := 16; height <= 80; height++ {
+			sizes = append(sizes, tea.WindowSizeMsg{Width: width, Height: height})
+		}
 	}
 	for _, size := range sizes {
 		m := NewModel()
@@ -451,6 +453,18 @@ func TestMainColumnBottomAlignsWithHistory(t *testing.T) {
 			historyLines := strings.Split(stripANSI(history), "\n")
 			if !strings.Contains(rightLines[len(rightLines)-1], "╯") || !strings.Contains(historyLines[len(historyLines)-1], "╯") {
 				t.Fatalf("bottom border is not on final row at %dx%d on tab %d", size.Width, size.Height, tab)
+			}
+
+			renderedLines := strings.Split(stripANSI(m.View().Content), "\n")
+			alignedBottom := false
+			for _, line := range renderedLines {
+				if strings.HasPrefix(line, "╰") && strings.Count(line, "╰") >= 2 {
+					alignedBottom = true
+					break
+				}
+			}
+			if !alignedBottom {
+				t.Fatalf("rendered pane bottoms do not align at %dx%d on tab %d:\n%s", size.Width, size.Height, tab, stripANSI(m.View().Content))
 			}
 		}
 	}
