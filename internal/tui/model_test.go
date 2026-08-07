@@ -144,6 +144,90 @@ func TestQuitConfirmationExpiresWithoutAffectingApplication(t *testing.T) {
 	}
 }
 
+func TestCtrlHJKLMovesBetweenAdjacentPanes(t *testing.T) {
+	tests := []struct {
+		name  string
+		start pane
+		key   rune
+		want  pane
+	}{
+		{name: "left from URL", start: paneURL, key: 'h', want: paneHistory},
+		{name: "left from request", start: paneRequest, key: 'h', want: paneHistory},
+		{name: "left from response", start: paneResponse, key: 'h', want: paneHistory},
+		{name: "left edge", start: paneHistory, key: 'h', want: paneHistory},
+		{name: "down from URL", start: paneURL, key: 'j', want: paneRequest},
+		{name: "down from request", start: paneRequest, key: 'j', want: paneResponse},
+		{name: "down edge from response", start: paneResponse, key: 'j', want: paneResponse},
+		{name: "down edge from history", start: paneHistory, key: 'j', want: paneHistory},
+		{name: "up edge from URL", start: paneURL, key: 'k', want: paneURL},
+		{name: "up from request", start: paneRequest, key: 'k', want: paneURL},
+		{name: "up from response", start: paneResponse, key: 'k', want: paneRequest},
+		{name: "up edge from history", start: paneHistory, key: 'k', want: paneHistory},
+		{name: "right edge from URL", start: paneURL, key: 'l', want: paneURL},
+		{name: "right edge from request", start: paneRequest, key: 'l', want: paneRequest},
+		{name: "right edge from response", start: paneResponse, key: 'l', want: paneResponse},
+		{name: "right from history", start: paneHistory, key: 'l', want: paneRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := NewModel()
+			m.setFocus(tt.start)
+
+			updated, _ := m.Update(tea.KeyPressMsg{Code: tt.key, Mod: tea.ModCtrl})
+			m = updated.(model)
+
+			if m.focus != tt.want {
+				t.Fatalf("focus = %d, want %d", m.focus, tt.want)
+			}
+			if got := m.urlInput.Focused(); got != (tt.want == paneURL) {
+				t.Fatalf("URL focus = %v, want %v", got, tt.want == paneURL)
+			}
+			if m.inputMode != modeNormal {
+				t.Fatalf("input mode = %d, want normal", m.inputMode)
+			}
+		})
+	}
+}
+
+func TestDirectionalPaneNavigationDoesNotInterceptRequestInsertMode(t *testing.T) {
+	m := NewModel()
+	m.requestTab = requestTabBody
+	m.bodyInput.SetValue("ab")
+	m.bodyInput.CursorEnd()
+	m.setFocus(paneRequest)
+	m.inputMode = modeInsert
+	_ = m.focusBodyInput()
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'h', Mod: tea.ModCtrl})
+	m = updated.(model)
+
+	if m.focus != paneRequest || m.inputMode != modeInsert {
+		t.Fatalf("insert-mode navigation changed focus or mode: focus=%d mode=%d", m.focus, m.inputMode)
+	}
+	if got := m.bodyInput.Value(); got != "a" {
+		t.Fatalf("Ctrl-H did not reach the active editor: body = %q, want %q", got, "a")
+	}
+}
+
+func TestTabPaneNavigationStillCycles(t *testing.T) {
+	m := NewModel()
+	want := []pane{paneRequest, paneResponse, paneHistory, paneURL}
+	for _, wantFocus := range want {
+		updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+		m = updated.(model)
+		if m.focus != wantFocus {
+			t.Fatalf("Tab focus = %d, want %d", m.focus, wantFocus)
+		}
+	}
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+	m = updated.(model)
+	if m.focus != paneHistory {
+		t.Fatalf("Shift-Tab focus = %d, want history", m.focus)
+	}
+}
+
 func TestQuitConfirmationModalHasUniformBackground(t *testing.T) {
 	modal := quitConfirmationModal(120)
 	width, height := lipgloss.Size(modal)

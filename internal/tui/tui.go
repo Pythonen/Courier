@@ -128,7 +128,13 @@ type quitConfirmationExpiredMsg struct {
 }
 
 type keymap struct {
-	next, prev, send, cancel, connect, save, saveExample, exportCurl, exportResponse, collections, settings, environment, cycleMethod, editMethod, quit key.Binding
+	next, prev, movePane       key.Binding
+	send, cancel, connect      key.Binding
+	save, saveExample          key.Binding
+	exportCurl, exportResponse key.Binding
+	collections, settings      key.Binding
+	environment, cycleMethod   key.Binding
+	editMethod, quit           key.Binding
 }
 
 type model struct {
@@ -326,6 +332,10 @@ func NewModel() model {
 				key.WithKeys("shift+tab"),
 				key.WithHelp("shift+tab", "prev pane"),
 			),
+			movePane: key.NewBinding(
+				key.WithKeys("ctrl+h", "ctrl+j", "ctrl+k", "ctrl+l"),
+				key.WithHelp("ctrl+hjkl", "move pane"),
+			),
 			send: key.NewBinding(
 				key.WithKeys("ctrl+s", "enter"),
 				key.WithHelp("ctrl+s/enter", "send request"),
@@ -335,8 +345,8 @@ func NewModel() model {
 				key.WithHelp("ctrl+x", "cancel request"),
 			),
 			connect: key.NewBinding(
-				key.WithKeys("ctrl+k"),
-				key.WithHelp("ctrl+k", "connect"),
+				key.WithKeys("alt+k"),
+				key.WithHelp("alt+k", "connect"),
 			),
 			save: key.NewBinding(
 				key.WithKeys("ctrl+w"),
@@ -1212,6 +1222,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case !inInsert && key.Matches(msg, m.keymap.prev):
 			m.setFocus((m.focus - 1 + paneCount) % paneCount)
 
+		case !inInsert && key.Matches(msg, m.keymap.movePane):
+			if nextPane, ok := adjacentPane(m.focus, msg.String()); ok {
+				m.setFocus(nextPane)
+			}
+
 		case !inInsert && key.Matches(msg, m.keymap.cycleMethod):
 			m.customMethod = ""
 			m.methodIdx = (m.methodIdx + 1) % len(methods)
@@ -1597,6 +1612,34 @@ func (m *model) setFocus(p pane) {
 	}
 }
 
+func adjacentPane(current pane, keyStr string) (pane, bool) {
+	switch keyStr {
+	case "ctrl+h":
+		if current != paneHistory {
+			return paneHistory, true
+		}
+	case "ctrl+j":
+		switch current {
+		case paneURL:
+			return paneRequest, true
+		case paneRequest:
+			return paneResponse, true
+		}
+	case "ctrl+k":
+		switch current {
+		case paneRequest:
+			return paneURL, true
+		case paneResponse:
+			return paneRequest, true
+		}
+	case "ctrl+l":
+		if current == paneHistory {
+			return paneRequest, true
+		}
+	}
+	return current, false
+}
+
 func (m *model) syncRequestTabFocus() {
 	m.headersInput.Blur()
 	m.paramsInput.Blur()
@@ -1725,6 +1768,7 @@ func (m model) View() tea.View {
 	helpView := helpStyle.Render(m.help.ShortHelpView([]key.Binding{
 		m.keymap.next,
 		m.keymap.prev,
+		m.keymap.movePane,
 		m.keymap.cycleMethod,
 		m.keymap.editMethod,
 		m.keymap.send,

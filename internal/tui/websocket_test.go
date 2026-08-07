@@ -45,10 +45,10 @@ func TestWebSocketSessionReusesRequestConfigurationAndStreamsTranscript(t *testi
 	m.bodyInput.SetValue("hello")
 	m.testsInput.SetEntries([]headerEntry{{key: "status", value: "101"}, {key: "body.contains", value: "echo:hello"}})
 
-	updated, connect := m.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
+	updated, connect := m.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModAlt})
 	m = updated.(model)
 	if connect == nil || m.webSocketCancel == nil {
-		t.Fatal("Ctrl+K did not start a WebSocket connection")
+		t.Fatal("Alt+K did not start a WebSocket connection")
 	}
 	connected := connect().(webSocketConnectedMsg)
 	if connected.err != nil {
