@@ -194,6 +194,7 @@ func (m *model) LoadWorkspace(path string) error {
 	m.workspacePath = path
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
+		rememberModelWorkspaceSnapshot(m, path, workspaceDiskSnapshot{})
 		return nil
 	}
 	if err != nil {
@@ -233,6 +234,7 @@ func (m *model) LoadWorkspace(path string) error {
 	}
 	m.history = trimHistory(m.history)
 	m.historyPos = 0
+	rememberModelWorkspaceSnapshot(m, path, workspaceSnapshotForData(data))
 	return nil
 }
 
@@ -283,35 +285,20 @@ func (m *model) SaveWorkspace() error {
 	}
 	data = append(data, '\n')
 
-	dir := filepath.Dir(m.workspacePath)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("create workspace directory: %w", err)
-	}
-	temp, err := os.CreateTemp(dir, ".workspace-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary workspace: %w", err)
-	}
-	tempPath := temp.Name()
-	defer func() { _ = os.Remove(tempPath) }()
-	if err := temp.Chmod(0o600); err != nil {
-		_ = temp.Close()
-		return fmt.Errorf("secure temporary workspace: %w", err)
-	}
-	if _, err := temp.Write(data); err != nil {
-		_ = temp.Close()
-		return fmt.Errorf("write workspace: %w", err)
-	}
-	if err := temp.Sync(); err != nil {
-		_ = temp.Close()
-		return fmt.Errorf("sync workspace: %w", err)
-	}
-	if err := temp.Close(); err != nil {
-		return fmt.Errorf("close workspace: %w", err)
-	}
-	if err := os.Rename(tempPath, m.workspacePath); err != nil {
-		return fmt.Errorf("replace workspace: %w", err)
-	}
-	return nil
+	return withWorkspaceLock(m.workspacePath, func() error {
+		current, err := workspaceSnapshotOnDisk(m.workspacePath)
+		if err != nil {
+			return fmt.Errorf("read workspace before saving: %w", err)
+		}
+		if err := validateModelWorkspaceSnapshot(m, m.workspacePath, current); err != nil {
+			return err
+		}
+		if err := writeWorkspaceAtomically(m.workspacePath, data); err != nil {
+			return err
+		}
+		rememberModelWorkspaceSnapshot(m, m.workspacePath, workspaceSnapshotForData(data))
+		return nil
+	})
 }
 
 func (m *model) loadWorkspaceEnvironments(file workspaceFile) error {
