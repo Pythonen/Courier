@@ -285,7 +285,7 @@ func formatAssertionResults(results []AssertionResult) string {
 		line := fmt.Sprintf("%s %s = %s", marker, result.Expression, result.Expected)
 		if !result.Passed {
 			if result.Error != "" {
-				line += " — " + result.Error
+				line += " — " + sanitizeTerminalText(result.Error)
 			} else {
 				line += " — got " + truncateAssertionValue(result.Actual)
 			}
@@ -297,7 +297,7 @@ func formatAssertionResults(results []AssertionResult) string {
 }
 
 func truncateAssertionValue(value string) string {
-	value = strings.ReplaceAll(value, "\n", "\\n")
+	value = strings.ReplaceAll(sanitizeTerminalText(value), "\n", "\\n")
 	const limit = 120
 	if len(value) > limit {
 		return value[:limit-1] + "…"

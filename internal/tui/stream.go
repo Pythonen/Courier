@@ -75,6 +75,7 @@ func startEventStream(requestID uuid.UUID, resp *http.Response, requestedURL str
 
 		elapsed := time.Since(started)
 		raw := body.String()
+		display := sanitizeTerminalText(raw)
 		cancelled := errors.Is(readErr, context.Canceled) || errors.Is(resp.Request.Context().Err(), context.Canceled)
 		failed := readErr != nil && !errors.Is(readErr, io.EOF) && !cancelled && !tooLarge
 		assertionResponse := assertionResponse{status: resp.StatusCode, headers: resp.Header, body: body.Bytes(), duration: elapsed, size: body.Len()}
@@ -85,7 +86,7 @@ func startEventStream(requestID uuid.UUID, resp *http.Response, requestedURL str
 			assertionResults = unavailableAssertionResults(assertions, "response stream failed before completion")
 		}
 		final := responseMsg{
-			requestID: requestID, responseBody: raw, responseRaw: raw, responseRawAvailable: !tooLarge,
+			requestID: requestID, responseBody: display, responseRaw: raw, responseRawAvailable: !tooLarge,
 			responseHeaders: formatHeaders(resp.Header), responseMeta: responseMeta(resp, elapsed, body.Len(), requestedURL, unixTarget),
 			statusCode: resp.StatusCode, duration: elapsed, responseBytes: body.Len(), finalURL: responseFinalURL(resp, unixTarget),
 			assertionResults: assertionResults, variableUpdates: successfulVariableUpdates(assertions, assertionResults),
@@ -98,7 +99,7 @@ func startEventStream(requestID uuid.UUID, resp *http.Response, requestedURL str
 				final.responseMeta = fmt.Sprintf("Cancelled • %s", elapsed.Round(time.Millisecond))
 			} else {
 				final.responseMeta = fmt.Sprintf("Stream failed • %s", elapsed.Round(time.Millisecond))
-				final.responseBody = raw + "\n\nStream error: " + readErr.Error()
+				final.responseBody = display + "\n\nStream error: " + sanitizeTerminalText(readErr.Error())
 			}
 		}
 		stream <- responseStreamMsg{requestID: final.requestID, final: &final}

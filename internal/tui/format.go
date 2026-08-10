@@ -18,7 +18,9 @@ func formatResponseBody(body []byte, contentType string) string {
 		contentType = strings.TrimSpace(contentType[:i])
 	}
 
-	src := string(body)
+	// Sanitize before syntax highlighting so response-provided escape
+	// sequences cannot be mistaken for formatter-owned ANSI styling.
+	src := sanitizeTerminalText(string(body))
 
 	// Pretty-print known formats before highlighting
 	switch contentType {

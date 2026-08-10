@@ -445,7 +445,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			break
 		}
 		if msg.err != nil {
-			m.response, m.responseRaw, m.responseMeta = msg.err.Error(), "", "Socket.IO connection failed"
+			m.response, m.responseRaw, m.responseMeta = sanitizeTerminalText(msg.err.Error()), "", "Socket.IO connection failed"
 			m.responseRawAvailable = false
 			m.responseModel.SetContent(m.response)
 			m.cancelRequest, m.requestContext = nil, nil
@@ -537,7 +537,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			break
 		}
 		if msg.err != nil {
-			m.response = msg.err.Error()
+			m.response = sanitizeTerminalText(msg.err.Error())
 			m.responseRaw = ""
 			m.responseRawAvailable = false
 			m.responseMeta = "MQTT connection failed"
@@ -648,7 +648,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			break
 		}
 		if msg.err != nil {
-			m.response = msg.err.Error()
+			m.response = sanitizeTerminalText(msg.err.Error())
 			m.responseRaw = ""
 			m.responseRawAvailable = false
 			m.responseMeta = "WebSocket connection failed"
@@ -758,6 +758,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.saveWorkspaceWithStatus()
 
 	case responseMsg:
+		msg.responseMeta = sanitizeTerminalText(msg.responseMeta)
+		if !msg.responseRawAvailable {
+			msg.responseBody = sanitizeTerminalText(msg.responseBody)
+		}
 		if msg.stream != nil {
 			cmds = append(cmds, waitResponseStream(msg.stream))
 		}
@@ -809,9 +813,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.final != nil {
 			return m.Update(*msg.final)
 		}
+		displayChunk := sanitizeTerminalText(msg.chunk)
 		for i := range m.history {
 			if m.history[i].requestID == msg.requestID {
-				m.history[i].responseBody += msg.chunk
+				m.history[i].responseBody += displayChunk
 				m.history[i].responseRaw += msg.chunk
 				m.history[i].responseRawAvailable = true
 				break
@@ -819,7 +824,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.requestID == m.requestId {
 			wasAtBottom := m.responseModel.AtBottom()
-			m.response += msg.chunk
+			m.response += displayChunk
 			m.responseRaw += msg.chunk
 			m.responseRawAvailable = true
 			m.responseModel.SetContent(m.response)
@@ -1837,7 +1842,7 @@ func formatHeaders(h http.Header) string {
 	var b strings.Builder
 	for _, k := range keys {
 		for _, v := range h[k] {
-			fmt.Fprintf(&b, "%s: %s\n", k, v)
+			fmt.Fprintf(&b, "%s: %s\n", sanitizeTerminalText(k), sanitizeTerminalText(v))
 		}
 	}
 	return b.String()

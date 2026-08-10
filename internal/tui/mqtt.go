@@ -599,9 +599,10 @@ func (m *model) appendMQTTEntry(requestID uuid.UUID, entry string) error {
 	if err != nil {
 		return err
 	}
+	display := sanitizeTerminalText(transcript)
 	for index := range m.history {
 		if m.history[index].requestID == requestID {
-			m.history[index].responseBody = transcript
+			m.history[index].responseBody = display
 			m.history[index].responseRaw = transcript
 			m.history[index].responseRawAvailable = true
 			break
@@ -609,10 +610,10 @@ func (m *model) appendMQTTEntry(requestID uuid.UUID, entry string) error {
 	}
 	if requestID == m.requestId {
 		wasAtBottom := m.responseModel.AtBottom()
-		m.response = transcript
+		m.response = display
 		m.responseRaw = transcript
 		m.responseRawAvailable = true
-		m.responseModel.SetContent(transcript)
+		m.responseModel.SetContent(display)
 		if wasAtBottom {
 			m.responseModel.GotoBottom()
 		}

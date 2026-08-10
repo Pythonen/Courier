@@ -93,6 +93,7 @@ func (m model) viewResponse(mainWidth, height int) string {
 		} else if m.responseFilterStatus != "" {
 			status = m.responseFilterStatus
 		}
+		status = sanitizeTerminalText(status)
 		available := innerWidth - lipgloss.Width(tabBar) - 2
 		if available > 0 {
 			tabBar += "  " + hintStyle.Render(ansi.Truncate(status, available, "…"))

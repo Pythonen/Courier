@@ -350,5 +350,5 @@ func FormatRunReport(report RunReport) string {
 		}
 	}
 	fmt.Fprintf(&output, "\n%d requests: %d passed, %d failed in %dms", report.Total, report.Passed, report.Failed, report.DurationMS)
-	return output.String()
+	return sanitizeTerminalText(output.String())
 }
