@@ -457,7 +457,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.savedRequests[m.activeSavedIndex].auth = previousAuth
 				break
 			}
-			m.markRequestDraftClean()
+			m.requestDraftBaseline.auth = config
 		}
 		m.responseMeta = "OAuth 2 authorization complete"
 
