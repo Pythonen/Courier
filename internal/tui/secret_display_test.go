@@ -188,3 +188,75 @@ func TestSettingsMasksProxyCredentialsAndPFXPassword(t *testing.T) {
 		t.Fatalf("PFX password was exposed:\n%s", maskedPFX)
 	}
 }
+
+func TestSettingsRevealRemasksWhenFocusLeavesRequestPane(t *testing.T) {
+	initTestZones()
+	tests := []struct {
+		name string
+		move func(*testing.T, model) model
+		want pane
+	}{
+		{
+			name: "focus transition",
+			move: func(_ *testing.T, m model) model {
+				m.setFocus(paneResponse)
+				return m
+			},
+			want: paneResponse,
+		},
+		{
+			name: "mouse",
+			move: func(t *testing.T, m model) model {
+				t.Helper()
+				_ = m.View()
+				urlZone := zone.Get("url")
+				if urlZone.IsZero() {
+					t.Fatal("URL mouse zone was not rendered")
+				}
+				updated, _ := m.Update(tea.MouseReleaseMsg{X: urlZone.StartX, Y: urlZone.StartY, Button: tea.MouseLeft})
+				return updated.(model)
+			},
+			want: paneURL,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			m := NewModel()
+			updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+			m = updated.(model)
+			m.settings.SetConfig(requestSettings{
+				timeout:  30,
+				proxyURL: "http://proxy-user:proxy-password@example.test:8080",
+			})
+			m.settings.clientPFXPasswordInput.SetValue("pfx-secret")
+			m.settingsOpen = true
+			m.setFocus(paneRequest)
+			m.settings.UpdateNormal("v")
+			if !m.settings.secretsVisible {
+				t.Fatal("settings credentials were not revealed before focus changed")
+			}
+			if revealed := stripANSI(m.settings.View()); !strings.Contains(revealed, "proxy-user:proxy-password") {
+				t.Fatalf("proxy credentials were not visible after reveal:\n%s", revealed)
+			}
+
+			m = test.move(t, m)
+			if m.focus != test.want {
+				t.Fatalf("focus = %d, want %d", m.focus, test.want)
+			}
+			if !m.settingsOpen {
+				t.Fatal("settings unexpectedly closed when focus changed")
+			}
+			if m.settings.secretsVisible {
+				t.Fatal("settings credentials remained revealed after focus left the request pane")
+			}
+			if remasked := stripANSI(m.settings.View()); strings.Contains(remasked, "proxy-user") || strings.Contains(remasked, "proxy-password") {
+				t.Fatalf("proxy credentials remained visible after focus changed:\n%s", remasked)
+			}
+			m.settings.page = settingsTLS
+			if remasked := stripANSI(m.settings.View()); strings.Contains(remasked, "pfx-secret") {
+				t.Fatalf("PFX password remained visible after focus changed:\n%s", remasked)
+			}
+		})
+	}
+}

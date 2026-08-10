@@ -1656,6 +1656,9 @@ func (m *model) setFocus(p pane) {
 	if p != paneHistory {
 		m.cookieSecretsVisible = false
 	}
+	if p != paneRequest && m.settingsOpen {
+		m.settings.Blur()
+	}
 	m.focus = p
 	m.inputMode = modeNormal
 
