@@ -1658,6 +1658,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) setFocus(p pane) {
+	if p != paneHistory {
+		m.cookieSecretsVisible = false
+	}
 	m.focus = p
 	m.inputMode = modeNormal
 

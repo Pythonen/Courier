@@ -3,6 +3,9 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	tea "charm.land/bubbletea/v2"
+	zone "github.com/lrstanley/bubblezone/v2"
 )
 
 func TestSensitiveTablesMaskValuesUntilExplicitlyRevealed(t *testing.T) {
@@ -70,6 +73,94 @@ func TestCookieSidebarMasksStoredValues(t *testing.T) {
 	m.handleHistoryKeys("v")
 	if revealed := stripANSI(m.viewHistory(10)); !strings.Contains(revealed, "s=Z") || !strings.Contains(revealed, "v:hide") {
 		t.Fatalf("cookie sidebar reveal toggle failed:\n%s", revealed)
+	}
+}
+
+func TestCookieSidebarRevealRemasksWhenFocusLeaves(t *testing.T) {
+	initTestZones()
+	tests := []struct {
+		name string
+		move func(*testing.T, model) model
+		want pane
+	}{
+		{
+			name: "Tab",
+			move: func(_ *testing.T, m model) model {
+				updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+				return updated.(model)
+			},
+			want: paneURL,
+		},
+		{
+			name: "Ctrl-L",
+			move: func(_ *testing.T, m model) model {
+				updated, _ := m.Update(tea.KeyPressMsg{Code: 'l', Mod: tea.ModCtrl})
+				return updated.(model)
+			},
+			want: paneRequest,
+		},
+		{
+			name: "mouse",
+			move: func(t *testing.T, m model) model {
+				t.Helper()
+				_ = m.View()
+				urlZone := zone.Get("url")
+				if urlZone.IsZero() {
+					t.Fatal("URL mouse zone was not rendered")
+				}
+				updated, _ := m.Update(tea.MouseReleaseMsg{X: urlZone.StartX, Y: urlZone.StartY, Button: tea.MouseLeft})
+				return updated.(model)
+			},
+			want: paneURL,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			m := NewModel()
+			updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+			m = updated.(model)
+			m.sidebarMode = sidebarCookies
+			if err := m.SetCookie("https://x/path", "s=Z; Path=/"); err != nil {
+				t.Fatal(err)
+			}
+			m.setFocus(paneHistory)
+			m.handleHistoryKeys("v")
+			if !m.cookieSecretsVisible {
+				t.Fatal("cookie values were not revealed before focus changed")
+			}
+			if revealed := stripANSI(m.viewHistory(10)); !strings.Contains(revealed, "s=Z") {
+				t.Fatalf("cookie value was not visible after reveal:\n%s", revealed)
+			}
+
+			m = test.move(t, m)
+			if m.focus != test.want {
+				t.Fatalf("focus = %d, want %d", m.focus, test.want)
+			}
+			if m.cookieSecretsVisible {
+				t.Fatal("cookie values remained revealed after sidebar lost focus")
+			}
+			if remasked := stripANSI(m.viewHistory(10)); strings.Contains(remasked, "s=Z") {
+				t.Fatalf("cookie value remained visible after sidebar lost focus:\n%s", remasked)
+			}
+		})
+	}
+}
+
+func TestCookieSidebarRevealPersistsWhileSidebarKeepsFocus(t *testing.T) {
+	m := NewModel()
+	m.sidebarMode = sidebarCookies
+	if err := m.SetCookie("https://x/path", "s=Z; Path=/"); err != nil {
+		t.Fatal(err)
+	}
+	m.setFocus(paneHistory)
+	m.handleHistoryKeys("v")
+	m.setFocus(paneHistory)
+	if !m.cookieSecretsVisible {
+		t.Fatal("cookie values were remasked without leaving the sidebar")
+	}
+	if revealed := stripANSI(m.viewHistory(10)); !strings.Contains(revealed, "s=Z") {
+		t.Fatalf("cookie value was hidden while sidebar retained focus:\n%s", revealed)
 	}
 }
 
