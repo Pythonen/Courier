@@ -158,6 +158,7 @@ func (m *model) handleHistoryKeys(keyStr string) {
 		case "c":
 			m.collectionPendingD = false
 			if len(m.savedRequests) > 0 {
+				draftDirty := m.requestDraftDirty()
 				copyRequest := m.savedRequests[m.collectionPos].toWorkspace().fromWorkspace()
 				copyRequest.name = m.uniqueSavedRequestCopyName(copyRequest.name)
 				insertAt := m.collectionPos + 1
@@ -165,8 +166,14 @@ func (m *model) handleHistoryKeys(keyStr string) {
 				copy(m.savedRequests[insertAt+1:], m.savedRequests[insertAt:])
 				m.savedRequests[insertAt] = copyRequest
 				m.collectionPos = insertAt
-				m.activeSavedIndex = insertAt
-				m.applySavedRequest(copyRequest)
+				if draftDirty {
+					if m.activeSavedIndex >= insertAt {
+						m.activeSavedIndex++
+					}
+				} else {
+					m.activeSavedIndex = insertAt
+					m.applySavedRequest(copyRequest)
+				}
 				m.responseMeta = "Duplicated saved request"
 				m.saveWorkspaceWithStatus()
 			}

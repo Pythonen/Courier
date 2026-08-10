@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -97,6 +98,60 @@ func TestExampleNavigationDoesNotReplaceRequestDraft(t *testing.T) {
 
 	if m.examplePos != 1 || m.urlInput.Value() != "https://draft.example.test" || m.response != "" {
 		t.Fatalf("example navigation loaded content: pos=%d url=%q response=%q", m.examplePos, m.urlInput.Value(), m.response)
+	}
+}
+
+func TestDuplicatingCollectionPreservesDirtyDraft(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "workspace.json")
+	m := NewModel()
+	if err := m.LoadWorkspace(path); err != nil {
+		t.Fatal(err)
+	}
+	m.savedRequests = []savedRequest{
+		{name: "First request", method: "GET", url: "https://api.example.test/first"},
+		{name: "Second request", method: "POST", url: "https://api.example.test/second"},
+	}
+	m.sidebarMode = sidebarCollections
+	m.applyRequestLoad(requestLoadTarget{kind: requestLoadCollection, index: 1})
+	m.urlInput.SetValue("https://draft.example.test/edited")
+	m.headersInput.SetEntries([]headerEntry{{key: "X-Draft", value: "unsaved"}})
+	m.paramsInput.SetEntries([]headerEntry{{key: "page", value: "2"}})
+	m.authInput.SetConfig(authConfig{typeID: authBearer, bearerToken: "draft-token"})
+	m.setBodyConfig(bodyConfig{mode: bodyRaw, rawType: rawJSON, raw: `{"draft":true}`})
+	m.cookiesInput.SetEntries([]headerEntry{{key: "session", value: "draft-cookie"}})
+	m.testsInput.SetEntries([]headerEntry{{key: "status", value: "202"}})
+	draft := m.captureCurrentRequest()
+	baseline := m.requestDraftBaseline
+	if !m.requestDraftDirty() {
+		t.Fatal("request edits were not dirty before duplication")
+	}
+
+	m.collectionPos = 0
+	m.setFocus(paneHistory)
+	m.handleHistoryKeys("c")
+
+	if len(m.savedRequests) != 3 || m.collectionPos != 1 {
+		t.Fatalf("duplicate selection = requests %d position %d", len(m.savedRequests), m.collectionPos)
+	}
+	if copied := m.savedRequests[1]; copied.name != "First request copy" || copied.url != "https://api.example.test/first" {
+		t.Fatalf("duplicated request = %#v", copied)
+	}
+	if m.activeSavedIndex != 2 {
+		t.Fatalf("active saved index = %d, want shifted index 2", m.activeSavedIndex)
+	}
+	if !sameRequestDraft(m.captureCurrentRequest(), draft) {
+		t.Fatalf("duplication replaced the active draft: got %#v want %#v", m.captureCurrentRequest(), draft)
+	}
+	if !sameRequestDraft(m.requestDraftBaseline, baseline) || !m.requestDraftDirty() {
+		t.Fatal("duplication changed or cleared the dirty draft baseline")
+	}
+
+	reloaded := NewModel()
+	if err := reloaded.LoadWorkspace(path); err != nil {
+		t.Fatal(err)
+	}
+	if len(reloaded.savedRequests) != 3 || reloaded.savedRequests[1].name != "First request copy" || reloaded.savedRequests[1].url != "https://api.example.test/first" {
+		t.Fatalf("persisted duplicated request = %#v", reloaded.savedRequests)
 	}
 }
 
