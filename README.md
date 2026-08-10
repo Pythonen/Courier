@@ -14,8 +14,24 @@ Courier targets the local, terminal-feasible API-client portion of Postman. It i
 
 Built-in method presets are GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS, TRACE, COPY, LINK, UNLINK, PURGE, LOCK, UNLOCK, PROPFIND, and VIEW. Any valid custom HTTP method token can also be entered, imported, saved, rerun, mocked, and exported. Courier captures response cookies in a local persistent cookie jar and automatically sends matching cookies on later requests.
 
+## Quick start
+
+Install and launch Courier with a supported Go toolchain:
+
+```bash
+go install github.com/Pythonen/Courier/cmd/courier@latest
+courier
+```
+
+Paste or type an API URL, press `Ctrl+S` to send it, and use `Tab` / `Shift+Tab` to move between panes. Press `F1` at any time (or `?` from a normal-mode pane) for the complete keyboard guide.
+
+<p align="center">
+  <img src="./assets/courier-tui.png" alt="Courier request and response interface" width="900"/>
+</p>
+
 ## Table of contents
 
+- [Quick start](#quick-start)
 - [Run Courier](#run-courier)
   - [Install with Homebrew](#install-with-homebrew)
   - [Install with Go](#install-with-go)
@@ -191,6 +207,7 @@ go build -o courier ./cmd/courier
 
 ### Global controls
 
+- `F1` or normal-mode `?`: open the complete keyboard guide
 - `Tab` / `Shift+Tab`: move between panes
 - `Ctrl+H` / `Ctrl+J` / `Ctrl+K` / `Ctrl+L`: move to the pane left / down / up / right
 - `Ctrl+O`: cycle request method
@@ -205,13 +222,16 @@ go build -o courier ./cmd/courier
 - `Ctrl+G`: render the current request as a copyable cURL command in the response pane
 - `Ctrl+D`: save the active response body or headers to a new local file
 - `Ctrl+P`: cycle the sidebar through request history, the saved collection, saved response examples, and the persistent cookie jar
-- `Ctrl+C`: quit
+- `Ctrl+C` twice: confirm and quit; `Esc` cancels the confirmation
+
+Terminal multiplexers can claim `Ctrl+H/J/K/L` before Courier receives them. In tmux, `Tab` / `Shift+Tab` remains the reliable no-configuration fallback; Courier cannot react to a key that tmux has already consumed.
 
 ### Request editor
 
 - `Left` / `Right`: switch request tabs
 - `i` / `Esc`: enter or leave input mode
 - Headers and Params: `j`/`k` move rows, `h`/`l` move columns, `o` adds a row, and `dd` deletes one
+- `v`: reveal or remask sensitive authorization and table values; leaving the pane remasks them automatically
 - Authorization: `o` cycles No Auth, Bearer Token, JWT Bearer, Basic Auth, Digest Auth, API Key, AWS Signature v4, OAuth 2 Client Credentials, OAuth 2 Password Credentials, OAuth 2 Refresh Token, OAuth 2 Authorization Code, Hawk, NTLM, and OAuth 1.0; `Space` toggles API-key, JWT, and OAuth 1.0 placement between header and query
 - Cookies: add explicit request cookies with the same key-value controls used by Headers and Query
 - Tests: add declarative response assertions or `set.name` response-to-variable actions using the expression and expected/source columns
@@ -222,17 +242,17 @@ GraphQL mode provides separate query, variables JSON, and optional operation-nam
 
 ### Saved requests, examples, and history
 
-Inside the saved collection, use `j`/`k` to choose a request, `Enter` to load it, `r` to rename it, `c` to duplicate it, and `dd` to delete it. Names such as `Users / Create user` organize requests into folder paths and can be selected by folder name in the collection runner. Once a saved request is loaded, `Ctrl+W` updates it in place while preserving its name; duplicate it first when you want a “Save As” workflow. Saved requests preserve the method, URL, query parameters, headers, cookies, authorization, body configuration, and tests. Environment values and saved requests are written atomically to the workspace file, which Courier creates with owner-only permissions (`0600`). Since authorization values may contain secrets, treat that file as sensitive.
+Inside the saved collection, use `j`/`k` to choose a request, `Enter` to load it, `r` to rename it, `c` to duplicate it, and `dd` to delete it. Changing the selection does not replace the active draft; if loading another item would discard edits, Courier asks for confirmation first. Names such as `Users / Create user` organize requests into folder paths and can be selected by folder name in the collection runner. Once a saved request is loaded, `Ctrl+W` updates it in place while preserving its name; duplicate it first when you want a “Save As” workflow. Saved requests preserve the method, URL, query parameters, headers, cookies, authorization, body configuration, and tests. Environment values and saved requests are written atomically to the workspace file, which Courier creates with owner-only permissions (`0600`). Since authorization values may contain secrets, treat that file as sensitive.
 
 After sending a loaded collection request, press `Ctrl+Y` to attach the response as a named example. Cycle to the Examples sidebar with `Ctrl+P`; use `j`/`k` and `Enter` to inspect examples, `r` to rename one, and `dd` to delete it. Examples retain status, headers, raw and formatted bodies, survive request updates and duplication, and round-trip through Postman Collection v2.1 imports and exports.
 
 Request history is also stored locally in the workspace and restores both the request configuration and captured response. The newest 100 entries are retained, subject to a 25 MiB serialized-history cap. Use `j`/`k` and `Enter` to reopen an entry, or `dd` to delete it permanently. History may contain authorization values and response data, so it has the same sensitivity as saved requests.
 
-The Cookies request tab adds explicit cookies to that saved request. Matching cookies captured from HTTP, WebSocket, and Socket.IO responses are merged from the persistent workspace jar. Cycle the sidebar to Cookies to inspect them; use `j`/`k` and `dd` to delete an individual stored cookie. Session cookies are intentionally retained across Courier restarts so terminal collection runs can continue authenticated workflows; use `-clear-cookies` when you want a clean jar.
+The Cookies request tab adds explicit cookies to that saved request. Matching cookies captured from HTTP, WebSocket, and Socket.IO responses are merged from the persistent workspace jar. Cycle the sidebar to Cookies to inspect them; use `j`/`k`, `v`, and `dd` to select, temporarily reveal, or delete an individual stored cookie. Session cookies are intentionally retained across Courier restarts so terminal collection runs can continue authenticated workflows; use `-clear-cookies` when you want a clean jar.
 
 ### Transport and protocol usage
 
-Transport settings include redirect following, request timeout, HTTP protocol selection, a proxy URL and bypass list, TLS certificate verification, a custom PEM CA bundle, and mutual-TLS client credentials. Proxies support `http`, `https`, `socks4`, `socks4a`, `socks5`, and `socks5h` URLs; credentials can be included in the URL, and the comma-separated bypass list accepts hosts, domain suffixes, IP addresses, and CIDR ranges. SOCKS4A and SOCKS5H resolve target hostnames through the proxy, while SOCKS4 and SOCKS5 resolve them locally. Client credentials can be a PEM certificate/private-key pair or a modern PKCS#12 `.p12`/`.pfx` bundle with an optional passphrase. Press `p` in the settings pane to switch between Network and TLS pages. HTTP protocol selection supports Auto negotiation, forced HTTP/1.x, and forced HTTP/2; use `h`/`l` or `Space` on the HTTP version row, and verify the negotiated protocol in the response metadata. TLS verification remains enabled by default; PEM certificate and key paths must be configured together, and PEM and PFX identities are mutually exclusive. Paths, proxy fields, and the PFX passphrase support the same `{{environment}}` templates as requests. These settings are persisted in the owner-only local workspace and honored by HTTP, WebSocket, Socket.IO, gRPC, OAuth token acquisition, and the headless collection runner. MQTT uses a direct raw TCP broker connection and rejects proxy configuration explicitly. Treat the workspace as sensitive when it contains literal proxy credentials or a PFX passphrase.
+Transport settings include redirect following, request timeout, HTTP protocol selection, a proxy URL and bypass list, TLS certificate verification, a custom PEM CA bundle, and mutual-TLS client credentials. Proxies support `http`, `https`, `socks4`, `socks4a`, `socks5`, and `socks5h` URLs; credentials can be included in the URL, and the comma-separated bypass list accepts hosts, domain suffixes, IP addresses, and CIDR ranges. SOCKS4A and SOCKS5H resolve target hostnames through the proxy, while SOCKS4 and SOCKS5 resolve them locally. Client credentials can be a PEM certificate/private-key pair or a modern PKCS#12 `.p12`/`.pfx` bundle with an optional passphrase. Press `p` in the settings pane to switch between Network and TLS pages and `v` to temporarily reveal masked credentials. HTTP protocol selection supports Auto negotiation, forced HTTP/1.x, and forced HTTP/2; use `h`/`l` or `Space` on the HTTP version row, and verify the negotiated protocol in the response metadata. TLS verification remains enabled by default; PEM certificate and key paths must be configured together, and PEM and PFX identities are mutually exclusive. Paths, proxy fields, and the PFX passphrase support the same `{{environment}}` templates as requests. These settings are persisted in the owner-only local workspace and honored by HTTP, WebSocket, Socket.IO, gRPC, OAuth token acquisition, and the headless collection runner. MQTT uses a direct raw TCP broker connection and rejects proxy configuration explicitly. Treat the workspace as sensitive when it contains literal proxy credentials or a PFX passphrase.
 
 On macOS and Linux, Courier can send HTTP directly over a Unix domain socket using Postman's URL form: `http://unix:/absolute/path/to/service.sock:/resource`. The shorter `unix:/absolute/path/to/service.sock:/resource` form defaults to HTTP; use `https://unix:...` for TLS. Methods, query parameters, headers, bodies, auth, cookies, redirects, streaming, assertions, variables, history, saved requests, and collection runs work through the socket. A `Host` entry in the Headers tab controls the HTTP host when a daemon requires one.
 
@@ -266,7 +286,7 @@ OAuth 1.0 signs requests natively without an embedded scripting runtime. It supp
 
 Environment variables use `{{name}}` templates and are resolved in URLs, query parameters, headers, cookies, authorization, bodies, multipart fields, and file paths. Supported dynamic variables include `{{$guid}}`, `{{$randomUUID}}`, `{{$timestamp}}`, `{{$isoTimestamp}}`, and `{{$randomInt}}`.
 
-The environment editor supports multiple named local profiles. Press `p` to cycle profiles, `n` to create one, `r` to rename the active profile, and `dd` to delete it. Use `-environment NAME` to select a profile for collection runs or exports. Postman environment imports retain their environment name and become local profiles.
+The environment editor supports multiple named local profiles. Values are masked by default; press `v` to reveal them temporarily. Press `p` to cycle profiles, `n` to create one, `r` to rename the active profile, and `dd` to delete it. Use `-environment NAME` to select a profile for collection runs or exports. Postman environment imports retain their environment name and become local profiles.
 
 ### Response pane
 
