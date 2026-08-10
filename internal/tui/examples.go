@@ -37,14 +37,21 @@ func (m *model) saveCurrentResponseExample() error {
 		}
 	}
 	name = uniqueExampleName(request.examples, name)
+	previousPos := m.examplePos
 	request.examples = append(request.examples, savedExample{
 		name: name, statusCode: m.responseStatusCode,
 		responseBody: m.response, responseRaw: m.responseRaw, responseRawAvailable: m.responseRawAvailable,
 		responseHeaders: m.responseHeaders, responseMeta: m.responseMeta,
 	})
 	m.examplePos = len(m.savedExampleRefs()) - 1
+	saveResult := m.saveWorkspaceWithStatus()
+	if saveResult == workspaceSaveConflictHandled {
+		m.examplePos = clampWorkspacePosition(previousPos, len(m.savedExampleRefs()))
+	}
+	if !saveResult.succeeded() {
+		return fmt.Errorf("%s", m.response)
+	}
 	m.responseSearchStatus = "Saved response example " + name
-	m.saveWorkspaceWithStatus()
 	return nil
 }
 

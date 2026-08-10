@@ -22,6 +22,9 @@ type workspaceDiskSnapshot struct {
 type modelWorkspaceSnapshot struct {
 	path string
 	disk workspaceDiskSnapshot
+	// data is the canonical loaded/saved state used to roll back a TUI
+	// mutation when the disk snapshot rejects it as stale.
+	data []byte
 }
 
 // Bubble Tea copies model values between updates. The HTTP client pointer is
@@ -44,11 +47,31 @@ func workspaceSnapshotOnDisk(path string) (workspaceDiskSnapshot, error) {
 	return workspaceSnapshotForData(data), nil
 }
 
-func rememberModelWorkspaceSnapshot(m *model, path string, disk workspaceDiskSnapshot) {
+func rememberModelWorkspaceSnapshot(m *model, path string, disk workspaceDiskSnapshot, data []byte) {
 	if m.client == nil {
 		return
 	}
-	modelWorkspaceSnapshots.Store(m.client, modelWorkspaceSnapshot{path: workspaceIdentity(path), disk: disk})
+	modelWorkspaceSnapshots.Store(m.client, modelWorkspaceSnapshot{
+		path: workspaceIdentity(path),
+		disk: disk,
+		data: append([]byte(nil), data...),
+	})
+}
+
+func modelWorkspaceSnapshotData(m *model, path string) ([]byte, bool) {
+	if m.client == nil {
+		return nil, false
+	}
+	loaded, ok := modelWorkspaceSnapshots.Load(m.client)
+	if !ok {
+		return nil, false
+	}
+	snapshot := loaded.(modelWorkspaceSnapshot)
+	if snapshot.path != workspaceIdentity(path) {
+		return nil, false
+	}
+	data := snapshot.data
+	return append([]byte(nil), data...), true
 }
 
 func validateModelWorkspaceSnapshot(m *model, path string, current workspaceDiskSnapshot) error {

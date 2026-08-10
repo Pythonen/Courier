@@ -2,6 +2,7 @@ package tui
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -194,7 +195,11 @@ func (m *model) LoadWorkspace(path string) error {
 	m.workspacePath = path
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		rememberModelWorkspaceSnapshot(m, path, workspaceDiskSnapshot{})
+		data, snapshotErr := m.workspaceData()
+		if snapshotErr != nil {
+			return fmt.Errorf("snapshot new workspace: %w", snapshotErr)
+		}
+		rememberModelWorkspaceSnapshot(m, path, workspaceDiskSnapshot{}, data)
 		return nil
 	}
 	if err != nil {
@@ -205,6 +210,18 @@ func (m *model) LoadWorkspace(path string) error {
 	if err := json.Unmarshal(data, &file); err != nil {
 		return fmt.Errorf("decode workspace: %w", err)
 	}
+	if err := m.applyWorkspaceFile(file); err != nil {
+		return err
+	}
+	stateData, err := m.workspaceData()
+	if err != nil {
+		return fmt.Errorf("snapshot loaded workspace: %w", err)
+	}
+	rememberModelWorkspaceSnapshot(m, path, workspaceSnapshotForData(data), stateData)
+	return nil
+}
+
+func (m *model) applyWorkspaceFile(file workspaceFile) error {
 	if file.Version != workspaceVersion {
 		return fmt.Errorf("unsupported workspace version %d", file.Version)
 	}
@@ -234,7 +251,6 @@ func (m *model) LoadWorkspace(path string) error {
 	}
 	m.history = trimHistory(m.history)
 	m.historyPos = 0
-	rememberModelWorkspaceSnapshot(m, path, workspaceSnapshotForData(data))
 	return nil
 }
 
@@ -242,6 +258,27 @@ func (m *model) SaveWorkspace() error {
 	if m.workspacePath == "" {
 		return nil
 	}
+	return withWorkspaceLock(m.workspacePath, func() error {
+		current, err := workspaceSnapshotOnDisk(m.workspacePath)
+		if err != nil {
+			return fmt.Errorf("read workspace before saving: %w", err)
+		}
+		if err := validateModelWorkspaceSnapshot(m, m.workspacePath, current); err != nil {
+			return err
+		}
+		data, err := m.workspaceData()
+		if err != nil {
+			return err
+		}
+		if err := writeWorkspaceAtomically(m.workspacePath, data); err != nil {
+			return err
+		}
+		rememberModelWorkspaceSnapshot(m, m.workspacePath, workspaceSnapshotForData(data), data)
+		return nil
+	})
+}
+
+func (m *model) workspaceData() ([]byte, error) {
 	m.settings.syncConfig()
 	m.syncActiveEnvironment()
 	m.history = trimHistory(m.history)
@@ -281,24 +318,10 @@ func (m *model) SaveWorkspace() error {
 	}
 	data, err := json.MarshalIndent(file, "", "  ")
 	if err != nil {
-		return fmt.Errorf("encode workspace: %w", err)
+		return nil, fmt.Errorf("encode workspace: %w", err)
 	}
 	data = append(data, '\n')
-
-	return withWorkspaceLock(m.workspacePath, func() error {
-		current, err := workspaceSnapshotOnDisk(m.workspacePath)
-		if err != nil {
-			return fmt.Errorf("read workspace before saving: %w", err)
-		}
-		if err := validateModelWorkspaceSnapshot(m, m.workspacePath, current); err != nil {
-			return err
-		}
-		if err := writeWorkspaceAtomically(m.workspacePath, data); err != nil {
-			return err
-		}
-		rememberModelWorkspaceSnapshot(m, m.workspacePath, workspaceSnapshotForData(data))
-		return nil
-	})
+	return data, nil
 }
 
 func (m *model) loadWorkspaceEnvironments(file workspaceFile) error {
@@ -379,14 +402,96 @@ func workspaceHTTPVersion(version httpVersion) string {
 	}
 }
 
-func (m *model) saveWorkspaceWithStatus() bool {
+func (m *model) restoreRememberedWorkspace() error {
+	data, ok := modelWorkspaceSnapshotData(m, m.workspacePath)
+	if !ok {
+		return fmt.Errorf("no loaded workspace snapshot is available")
+	}
+	var file workspaceFile
+	if err := json.Unmarshal(data, &file); err != nil {
+		return fmt.Errorf("decode loaded workspace snapshot: %w", err)
+	}
+
+	historyPos := m.historyPos
+	collectionPos := m.collectionPos
+	examplePos := m.examplePos
+	cookiePos := m.cookiePos
+	settingsPageIndex := m.settings.page
+	settingsCursor := m.settings.cursor
+	environmentCursorRow := m.variablesInput.cursorRow
+	environmentCursorCol := m.variablesInput.cursorCol
+	if err := m.applyWorkspaceFile(file); err != nil {
+		return fmt.Errorf("restore loaded workspace snapshot: %w", err)
+	}
+	m.historyPos = clampWorkspacePosition(historyPos, len(m.history))
+	m.collectionPos = clampWorkspacePosition(collectionPos, len(m.savedRequests))
+	m.examplePos = clampWorkspacePosition(examplePos, len(m.savedExampleRefs()))
+	m.cookiePos = clampWorkspacePosition(cookiePos, len(m.Cookies()))
+	m.settings.page = settingsPageIndex
+	if m.settings.page < 0 || m.settings.page >= settingsPageCount {
+		m.settings.page = settingsNetwork
+	}
+	m.settings.cursor = clampWorkspacePosition(settingsCursor, m.settings.fieldCount())
+	m.restoreEnvironmentCursor(environmentCursorRow, environmentCursorCol)
+	if m.settingsOpen || m.environmentOpen {
+		// Restoring Settings or Environment rebuilds and blurs its inputs, so
+		// retaining insert mode would leave the UI claiming to edit an input
+		// that can no longer receive keystrokes.
+		m.inputMode = modeNormal
+	}
+	// Saved requests have no stable identity, so a stale numeric index cannot
+	// safely be rebound after rollback—even when the list lengths happen to
+	// match. Keep the current draft but detach it from the restored collection.
+	m.activeSavedIndex = -1
+	if !m.requestDraftDirty() {
+		m.requestDraftBaseline = savedRequest{}
+	}
+	return nil
+}
+
+func clampWorkspacePosition(position, count int) int {
+	if count == 0 || position < 0 {
+		return 0
+	}
+	if position >= count {
+		return count - 1
+	}
+	return position
+}
+
+func (m *model) restoreEnvironmentCursor(row, column int) {
+	m.variablesInput.cursorRow = clampWorkspacePosition(row, len(m.variablesInput.rows))
+	m.variablesInput.cursorCol = clampWorkspacePosition(column, 2)
+}
+
+type workspaceSaveResult uint8
+
+const (
+	workspaceSaveFailed workspaceSaveResult = iota
+	workspaceSaveSucceeded
+	workspaceSaveConflictHandled
+)
+
+func (result workspaceSaveResult) succeeded() bool {
+	return result == workspaceSaveSucceeded
+}
+
+func (m *model) saveWorkspaceWithStatus() workspaceSaveResult {
 	if err := m.SaveWorkspace(); err != nil {
+		result := workspaceSaveFailed
+		if errors.Is(err, ErrWorkspaceConflict) {
+			if restoreErr := m.restoreRememberedWorkspace(); restoreErr != nil {
+				err = fmt.Errorf("%v; failed to roll back rejected changes: %w", err, restoreErr)
+			} else {
+				result = workspaceSaveConflictHandled
+			}
+		}
 		m.responseMeta = "Workspace save failed"
 		m.responseModel.SetContent(err.Error())
 		m.response = err.Error()
-		return false
+		return result
 	}
-	return true
+	return workspaceSaveSucceeded
 }
 
 func (m *model) captureCurrentRequest() savedRequest {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -454,8 +455,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.activeSavedIndex >= 0 && m.activeSavedIndex < len(m.savedRequests) {
 			previousAuth := m.savedRequests[m.activeSavedIndex].auth
 			m.savedRequests[m.activeSavedIndex].auth = config
-			if !m.saveWorkspaceWithStatus() {
-				m.savedRequests[m.activeSavedIndex].auth = previousAuth
+			saveResult := m.saveWorkspaceWithStatus()
+			if !saveResult.succeeded() {
+				if saveResult != workspaceSaveConflictHandled {
+					m.savedRequests[m.activeSavedIndex].auth = previousAuth
+				}
 				break
 			}
 			m.requestDraftBaseline.auth = config
@@ -875,6 +879,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			if !m.quitConfirmOpen {
+				// Persist or roll back workspace-backed edits before asking for the
+				// final quit confirmation. A confirmed quit may deliberately ignore
+				// a stale-snapshot conflict so the process cannot become trapped.
+				m.saveWorkspaceWithStatus()
 				m.quitConfirmOpen = true
 				m.quitConfirmID = uuid.New()
 				id := m.quitConfirmID
@@ -1025,6 +1033,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.responseMeta = "Environment name must be non-empty and unique"
 					break
 				}
+				previousCursorRow := m.variablesInput.cursorRow
+				previousCursorCol := m.variablesInput.cursorCol
 				if m.environmentCreating {
 					m.syncActiveEnvironment()
 					m.environments = append(m.environments, environmentProfile{name: name})
@@ -1038,7 +1048,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.environmentNameOpen = false
 				m.environmentCreating = false
 				m.environmentNameInput.Blur()
-				m.saveWorkspaceWithStatus()
+				if m.saveWorkspaceWithStatus() == workspaceSaveConflictHandled {
+					m.restoreEnvironmentCursor(previousCursorRow, previousCursorCol)
+				}
 			default:
 				var cmd tea.Cmd
 				m.environmentNameInput, cmd = m.environmentNameInput.Update(msg)
@@ -1097,6 +1109,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case key.Matches(msg, m.keymap.settings):
+			wasSettingsOpen := m.settingsOpen
+			wasEnvironmentOpen := m.environmentOpen
 			m.settingsOpen = !m.settingsOpen
 			m.environmentOpen = false
 			m.environmentNameOpen = false
@@ -1106,9 +1120,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.settingsOpen {
 				m.setFocus(paneRequest)
 			}
+			if wasSettingsOpen || wasEnvironmentOpen {
+				m.saveWorkspaceWithStatus()
+			}
 
 		case key.Matches(msg, m.keymap.environment):
 			wasOpen := m.environmentOpen
+			wasSettingsOpen := m.settingsOpen
 			m.environmentOpen = !m.environmentOpen
 			m.settingsOpen = false
 			m.inputMode = modeNormal
@@ -1120,7 +1138,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.environmentOpen {
 				m.setFocus(paneRequest)
 				m.variablesInput.Focus()
-			} else if wasOpen {
+			}
+			if wasOpen || wasSettingsOpen {
 				m.saveWorkspaceWithStatus()
 			}
 
@@ -1147,8 +1166,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.responseMeta = "Saved request locally"
 				}
 				m.sidebarMode = sidebarCollections
-				if m.saveWorkspaceWithStatus() {
+				saveResult := m.saveWorkspaceWithStatus()
+				if saveResult.succeeded() {
 					m.markRequestDraftClean()
+				} else if saveResult == workspaceSaveConflictHandled {
+					m.collectionPos = clampWorkspacePosition(previousCollectionPos, len(m.savedRequests))
 				} else if updatedIndex >= 0 {
 					m.savedRequests[updatedIndex] = previousRequest
 					m.activeSavedIndex = previousActiveIndex
@@ -1218,6 +1240,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if msg.String() == "esc" {
 					m.inputMode = modeNormal
 					m.settings.Blur()
+					m.saveWorkspaceWithStatus()
 				} else {
 					cmds = append(cmds, m.settings.UpdateInput(msg))
 				}
@@ -1225,7 +1248,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.inputMode = modeInsert
 				cmds = append(cmds, m.settings.FocusCurrent())
 			} else {
+				previousConfig := m.settings.config
 				m.settings.UpdateNormal(msg.String())
+				if m.settings.config != previousConfig {
+					m.saveWorkspaceWithStatus()
+				}
 			}
 
 		case m.environmentOpen:
@@ -1233,6 +1260,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if msg.String() == "esc" {
 					m.inputMode = modeNormal
 					m.variablesInput.blurAll()
+					m.saveWorkspaceWithStatus()
 				} else {
 					cmds = append(cmds, m.variablesInput.UpdateInsert(msg))
 				}
@@ -1243,10 +1271,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				keyStr := msg.String()
 				switch keyStr {
 				case "p":
+					previousCursorRow := m.variablesInput.cursorRow
+					previousCursorCol := m.variablesInput.cursorCol
 					m.environmentPendingD = false
 					m.activateEnvironmentIndex((m.environmentPos + 1) % len(m.environments))
 					m.responseMeta = "Environment: " + m.activeEnvironmentName()
-					m.saveWorkspaceWithStatus()
+					if m.saveWorkspaceWithStatus() == workspaceSaveConflictHandled {
+						m.restoreEnvironmentCursor(previousCursorRow, previousCursorCol)
+					}
 				case "n":
 					m.environmentPendingD = false
 					m.environmentCreating = true
@@ -1267,6 +1299,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.environmentPendingD = true
 						m.responseMeta = "Press d again to delete " + m.activeEnvironmentName()
 					} else {
+						previousCursorRow := m.variablesInput.cursorRow
+						previousCursorCol := m.variablesInput.cursorCol
 						deleted := m.activeEnvironmentName()
 						m.environments = append(m.environments[:m.environmentPos], m.environments[m.environmentPos+1:]...)
 						if m.environmentPos >= len(m.environments) {
@@ -1275,11 +1309,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.variablesInput.SetEntries(m.environments[m.environmentPos].values)
 						m.environmentPendingD = false
 						m.responseMeta = "Deleted environment " + deleted
-						m.saveWorkspaceWithStatus()
+						if m.saveWorkspaceWithStatus() == workspaceSaveConflictHandled {
+							m.restoreEnvironmentCursor(previousCursorRow, previousCursorCol)
+						}
 					}
 				default:
 					m.environmentPendingD = false
+					previousCursorRow := m.variablesInput.cursorRow
+					previousCursorCol := m.variablesInput.cursorCol
+					previousEntries := m.variablesInput.Entries()
 					m.variablesInput.UpdateNormal(keyStr)
+					if !slices.Equal(previousEntries, m.variablesInput.Entries()) {
+						if m.saveWorkspaceWithStatus() == workspaceSaveConflictHandled {
+							m.restoreEnvironmentCursor(previousCursorRow, previousCursorCol)
+						}
+					}
 				}
 			}
 
@@ -1658,6 +1702,11 @@ func (m *model) setFocus(p pane) {
 	}
 	if p != paneRequest && m.settingsOpen {
 		m.settings.Blur()
+		m.saveWorkspaceWithStatus()
+	}
+	if p != paneRequest && m.environmentOpen {
+		m.variablesInput.Blur()
+		m.saveWorkspaceWithStatus()
 	}
 	m.focus = p
 	m.inputMode = modeNormal
