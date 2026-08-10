@@ -134,7 +134,7 @@ type keymap struct {
 	exportCurl, exportResponse key.Binding
 	collections, settings      key.Binding
 	environment, cycleMethod   key.Binding
-	editMethod, quit           key.Binding
+	editMethod, showHelp, quit key.Binding
 }
 
 type model struct {
@@ -225,6 +225,8 @@ type model struct {
 	sidebarMode           sidebarMode
 	quitConfirmOpen       bool
 	quitConfirmID         uuid.UUID
+	helpOverlayOpen       bool
+	helpOverlayOffset     int
 
 	requestDraftBaseline   savedRequest
 	requestLoadConfirmOpen bool
@@ -331,7 +333,7 @@ func NewModel() model {
 		keymap: keymap{
 			next: key.NewBinding(
 				key.WithKeys("tab"),
-				key.WithHelp("tab", "next pane"),
+				key.WithHelp("tab/shift+tab", "cycle pane"),
 			),
 			prev: key.NewBinding(
 				key.WithKeys("shift+tab"),
@@ -389,6 +391,10 @@ func NewModel() model {
 				key.WithKeys("O"),
 				key.WithHelp("O", "edit method"),
 			),
+			showHelp: key.NewBinding(
+				key.WithKeys("?", "f1"),
+				key.WithHelp("?/f1", "all keys"),
+			),
 			quit: key.NewBinding(
 				key.WithKeys("ctrl+c"),
 				key.WithHelp("ctrl+c", "quit"),
@@ -405,6 +411,11 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
+	if m.helpOverlayOpen {
+		if _, isMouse := msg.(tea.MouseMsg); isMouse {
+			return m, nil
+		}
+	}
 
 	switch msg := msg.(type) {
 	case quitConfirmationExpiredMsg:
@@ -848,6 +859,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
+		if m.helpOverlayOpen {
+			if _, released := msg.(tea.KeyReleaseMsg); released {
+				return m, nil
+			}
+			if msg.Key().IsRepeat && (msg.String() == "?" || msg.String() == "f1" || msg.String() == "esc") {
+				return m, nil
+			}
+			m.updateHelpOverlay(msg.String())
+			return m, nil
+		}
+
 		inInsert := m.focus == paneRequest && m.inputMode == modeInsert
 
 		switch {
@@ -897,6 +919,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.confirmPendingRequestLoad()
 			case "esc", "n":
 				m.cancelPendingRequestLoad()
+			}
+			return m, nil
+
+		case key.Matches(msg, m.keymap.showHelp) && (msg.String() == "f1" || (!inInsert && m.helpShortcutAvailable())):
+			if _, pressed := msg.(tea.KeyPressMsg); pressed && !msg.Key().IsRepeat {
+				m.helpOverlayOpen = true
+				m.helpOverlayOffset = 0
 			}
 			return m, nil
 
@@ -1707,6 +1736,7 @@ func (m *model) syncRequestTabFocus() {
 
 func (m *model) sizeComponents() {
 	mainWidth, _, bodyHeight, responseHeight := layoutDimensions(m.width, m.height)
+	m.help.SetWidth(max(1, m.width-2))
 
 	m.urlInput.SetWidth(mainWidth - methodWidth - 4)
 
@@ -1808,21 +1838,11 @@ func (m model) View() tea.View {
 	layout := lipgloss.JoinHorizontal(lipgloss.Top, historySection, rightCol)
 
 	helpView := helpStyle.Render(m.help.ShortHelpView([]key.Binding{
-		m.keymap.next,
-		m.keymap.prev,
+		m.keymap.showHelp,
 		m.keymap.movePane,
-		m.keymap.cycleMethod,
-		m.keymap.editMethod,
+		m.keymap.next,
 		m.keymap.send,
-		m.keymap.cancel,
-		m.keymap.connect,
-		m.keymap.save,
-		m.keymap.saveExample,
-		m.keymap.exportCurl,
-		m.keymap.exportResponse,
 		m.keymap.collections,
-		m.keymap.settings,
-		m.keymap.environment,
 		m.keymap.quit,
 	}))
 
@@ -1832,6 +1852,9 @@ func (m model) View() tea.View {
 	}
 	if m.quitConfirmOpen {
 		content = m.viewQuitConfirmation(content)
+	}
+	if m.helpOverlayOpen {
+		content = m.viewHelpOverlay(content)
 	}
 	v.SetContent(content)
 	return v
