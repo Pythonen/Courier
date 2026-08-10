@@ -18,8 +18,9 @@ golangci-lint run
 
 ## Golden snapshot tests
 
-Courier uses golden snapshot tests for TUI rendering in `view_golden_test.go`.
-The expected outputs are stored in `testdata/*.golden`.
+Courier uses golden snapshot tests for TUI rendering in
+`internal/tui/view_golden_test.go`. The expected outputs are stored in
+`internal/tui/testdata/view_*.golden`.
 
 ### When to update snapshots
 
@@ -30,16 +31,24 @@ Update snapshots only when UI output changes intentionally (layout, spacing, lab
 1. Regenerate snapshots:
 
 ```bash
-go test ./... -update
+go test ./internal/tui -run TestViewGolden -update
 ```
 
-2. Re-run tests without update mode:
+2. Review the snapshot diff before proceeding:
 
 ```bash
+git diff -- internal/tui/testdata
+```
+
+3. Re-run the golden test without update mode, then run the full suite:
+
+```bash
+go test ./internal/tui -run TestViewGolden
 go test ./...
 ```
 
-3. Review and commit both code and updated `testdata/*.golden` files.
+4. Commit both the intentional UI change and the updated
+   `internal/tui/testdata/view_*.golden` files.
 
 ### If golden tests fail unexpectedly
 

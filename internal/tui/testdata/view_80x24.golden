@@ -1,0 +1,20 @@
+╭──────────────────────────╮╭─────────────────────────────────────────────╮
+│ History  dd              ││ POST  > https://api.example/users           │
+│POST   https://api.exa…   │╰─────────────────────────────────────────────╯
+│GET    https://api.exa…   │╭─────────────────────────────────────────────╮
+│DELETE https://api.exa…   ││ Body  Query  Auth  Headers  Cookies  Tests  │
+│                          ││Type: Raw  m:cycle  Format: JSON  f:cycle    │
+│                          ││  1 {                                        │
+│                          ││  2   "name": "Ada Lovelace",                │
+│                          ││  3   "role": "admin"                        │
+│                          ││  4 }                                        │
+│                          ││                                             │
+│                          │╰─────────────────────────────────────────────╯
+│                          │╭─────────────────────────────────────────────╮
+│                          ││ Body   Headers   Tests   201 Created • 84ms…│
+│                          ││                                             │
+│                          ││ {                                           │
+│                          ││   "id": 42,                                 │
+│                          ││   "name": "Ada Lovelace",                   │
+╰──────────────────────────╯╰─────────────────────────────────────────────╯
+ ?/f1 all keys • ctrl+hjkl move pane • tab/shift+tab cycle pane …
