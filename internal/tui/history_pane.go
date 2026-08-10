@@ -44,9 +44,11 @@ func (m *model) handleHistoryKeys(keyStr string) {
 					m.cookiePos--
 				}
 				m.cookiePendingD = false
-				m.responseMeta = "Deleted stored cookie"
-				if m.saveWorkspaceWithStatus() == workspaceSaveConflictHandled {
+				saveResult := m.saveWorkspaceWithStatus()
+				if saveResult == workspaceSaveConflictHandled {
 					m.cookiePos = clampWorkspacePosition(previousPos, len(m.Cookies()))
+				} else if saveResult.succeeded() {
+					m.responseMeta = "Deleted stored cookie"
 				}
 			} else {
 				m.cookiePendingD = true
@@ -90,9 +92,11 @@ func (m *model) handleHistoryKeys(keyStr string) {
 					m.examplePos--
 				}
 				m.examplePendingD = false
-				m.responseMeta = "Deleted saved example"
-				if m.saveWorkspaceWithStatus() == workspaceSaveConflictHandled {
+				saveResult := m.saveWorkspaceWithStatus()
+				if saveResult == workspaceSaveConflictHandled {
 					m.examplePos = clampWorkspacePosition(previousPos, len(m.savedExampleRefs()))
+				} else if saveResult.succeeded() {
+					m.responseMeta = "Deleted saved example"
 				}
 			} else {
 				m.examplePendingD = true
@@ -147,9 +151,11 @@ func (m *model) handleHistoryKeys(keyStr string) {
 					m.collectionPos--
 				}
 				m.collectionPendingD = false
-				m.responseMeta = "Deleted saved request"
-				if m.saveWorkspaceWithStatus() == workspaceSaveConflictHandled {
+				saveResult := m.saveWorkspaceWithStatus()
+				if saveResult == workspaceSaveConflictHandled {
 					m.collectionPos = clampWorkspacePosition(previousPos, len(m.savedRequests))
+				} else if saveResult.succeeded() {
+					m.responseMeta = "Deleted saved request"
 				}
 			} else {
 				m.collectionPendingD = true
@@ -184,9 +190,11 @@ func (m *model) handleHistoryKeys(keyStr string) {
 					m.activeSavedIndex = insertAt
 					m.applySavedRequest(copyRequest)
 				}
-				m.responseMeta = "Duplicated saved request"
-				if m.saveWorkspaceWithStatus() == workspaceSaveConflictHandled {
+				saveResult := m.saveWorkspaceWithStatus()
+				if saveResult == workspaceSaveConflictHandled {
 					m.collectionPos = clampWorkspacePosition(previousPos, len(m.savedRequests))
+				} else if saveResult.succeeded() {
+					m.responseMeta = "Duplicated saved request"
 				}
 			}
 			return
@@ -215,9 +223,11 @@ func (m *model) handleHistoryKeys(keyStr string) {
 				m.historyPos--
 			}
 			m.historyPendingD = false
-			m.responseMeta = "Deleted history entry"
-			if m.saveWorkspaceWithStatus() == workspaceSaveConflictHandled {
+			saveResult := m.saveWorkspaceWithStatus()
+			if saveResult == workspaceSaveConflictHandled {
 				m.historyPos = clampWorkspacePosition(previousPos, len(m.history))
+			} else if saveResult.succeeded() {
+				m.responseMeta = "Deleted history entry"
 			}
 		} else {
 			m.historyPendingD = true

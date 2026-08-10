@@ -60,8 +60,8 @@ func TestWorkspaceRejectsStaleLoadedSnapshot(t *testing.T) {
 	}
 
 	stale.saveWorkspaceWithStatus()
-	if stale.responseMeta != "Workspace save failed" || !strings.Contains(stale.response, ErrWorkspaceConflict.Error()) {
-		t.Fatalf("TUI conflict status = meta %q response %q", stale.responseMeta, stale.response)
+	if !strings.Contains(stale.workspaceSaveStatus, ErrWorkspaceConflict.Error()) {
+		t.Fatalf("TUI conflict status = %q", stale.workspaceSaveStatus)
 	}
 
 	if err := stale.LoadWorkspace(path); err != nil {
@@ -143,8 +143,8 @@ func TestWorkspaceConflictRollsBackRejectedModelMutations(t *testing.T) {
 	if stale.settings.config.proxyURL != "http://seed-proxy.example" || stale.settings.config.timeout != 5*time.Second {
 		t.Fatalf("settings after rejected save = %#v, want loaded snapshot", stale.settings.config)
 	}
-	if stale.responseMeta != "Workspace save failed" || !strings.Contains(stale.response, ErrWorkspaceConflict.Error()) {
-		t.Fatalf("conflict status = meta %q response %q", stale.responseMeta, stale.response)
+	if !strings.Contains(stale.workspaceSaveStatus, ErrWorkspaceConflict.Error()) {
+		t.Fatalf("conflict status = %q", stale.workspaceSaveStatus)
 	}
 
 	loaded, err := NewModelWithWorkspace(path)
@@ -208,8 +208,8 @@ func TestWorkspaceConflictRollsBackConcurrentCreationMutation(t *testing.T) {
 	if len(stale.savedRequests) != 0 {
 		t.Fatalf("rejected concurrent creation left requests in memory: %#v", stale.savedRequests)
 	}
-	if !strings.Contains(stale.response, ErrWorkspaceConflict.Error()) {
-		t.Fatalf("concurrent creation error = %q, want workspace conflict", stale.response)
+	if !strings.Contains(stale.workspaceSaveStatus, ErrWorkspaceConflict.Error()) {
+		t.Fatalf("concurrent creation error = %q, want workspace conflict", stale.workspaceSaveStatus)
 	}
 }
 
@@ -360,8 +360,8 @@ func TestWorkspaceConflictWithoutSnapshotIsNotReportedHandled(t *testing.T) {
 	if result := uninitialized.saveWorkspaceWithStatus(); result != workspaceSaveFailed {
 		t.Fatalf("save result = %d, want ordinary failure when conflict rollback is unavailable", result)
 	}
-	if len(uninitialized.savedRequests) != 1 || !strings.Contains(uninitialized.response, "failed to roll back rejected changes") {
-		t.Fatalf("unhandled conflict state = requests %#v response %q", uninitialized.savedRequests, uninitialized.response)
+	if len(uninitialized.savedRequests) != 1 || !strings.Contains(uninitialized.workspaceSaveStatus, "failed to roll back rejected changes") {
+		t.Fatalf("unhandled conflict state = requests %#v status %q", uninitialized.savedRequests, uninitialized.workspaceSaveStatus)
 	}
 }
 
@@ -415,8 +415,8 @@ func TestConflictRollbackSupersedesRequestSaveLocalRollback(t *testing.T) {
 	if stale.activeSavedIndex != -1 || !stale.requestDraftDirty() {
 		t.Fatalf("restored request binding = index %d dirty %v, want detached dirty draft", stale.activeSavedIndex, stale.requestDraftDirty())
 	}
-	if !strings.Contains(stale.response, ErrWorkspaceConflict.Error()) {
-		t.Fatalf("request save error = %q, want workspace conflict", stale.response)
+	if !strings.Contains(stale.workspaceSaveStatus, ErrWorkspaceConflict.Error()) {
+		t.Fatalf("request save error = %q, want workspace conflict", stale.workspaceSaveStatus)
 	}
 }
 
@@ -510,8 +510,8 @@ func TestWorkspaceConflictRollsBackOverlayEditsWhenClosed(t *testing.T) {
 	if stale.settingsOpen || stale.settings.config.proxyURL != "http://seed-proxy.example" || stale.settings.proxyInput.Value() != "http://seed-proxy.example" || stale.settings.page != settingsTLS || stale.settings.cursor != 5 {
 		t.Fatalf("settings close rollback = open %v config %q input %q page %d cursor %d", stale.settingsOpen, stale.settings.config.proxyURL, stale.settings.proxyInput.Value(), stale.settings.page, stale.settings.cursor)
 	}
-	if !strings.Contains(stale.response, ErrWorkspaceConflict.Error()) {
-		t.Fatalf("settings close response = %q, want workspace conflict", stale.response)
+	if !strings.Contains(stale.workspaceSaveStatus, ErrWorkspaceConflict.Error()) {
+		t.Fatalf("settings close status = %q, want workspace conflict", stale.workspaceSaveStatus)
 	}
 
 	stale.environmentOpen = true
@@ -575,6 +575,9 @@ func TestStaleWorkspaceCanQuitWithoutOverwritingNewerSnapshot(t *testing.T) {
 	stale.settings.proxyInput.SetValue("http://stale-proxy.example")
 	stale.settingsOpen = true
 	stale.inputMode = modeInsert
+	stale.response = "original response"
+	stale.responseMeta = "200 OK"
+	stale.responseModel.SetContent(stale.response)
 
 	ctrlC := tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
 	updated, firstCommand := stale.Update(ctrlC)
@@ -582,8 +585,11 @@ func TestStaleWorkspaceCanQuitWithoutOverwritingNewerSnapshot(t *testing.T) {
 	if firstCommand == nil || !stale.quitConfirmOpen {
 		t.Fatal("initial quit did not open confirmation")
 	}
-	if !strings.Contains(stale.response, ErrWorkspaceConflict.Error()) {
-		t.Fatalf("initial quit response = %q, want workspace conflict", stale.response)
+	if stale.response != "original response" || stale.responseModel.GetContent() != "original response" || stale.responseMeta != "200 OK" {
+		t.Fatalf("quit preflight clobbered response: body=%q viewport=%q metadata=%q", stale.response, stale.responseModel.GetContent(), stale.responseMeta)
+	}
+	if !strings.Contains(stale.workspaceSaveStatus, ErrWorkspaceConflict.Error()) {
+		t.Fatalf("initial quit status = %q, want workspace conflict", stale.workspaceSaveStatus)
 	}
 	if entries := stale.variablesInput.Entries(); len(entries) != 0 {
 		t.Fatalf("stale environment edits survived quit preflight: %#v", entries)
@@ -598,6 +604,9 @@ func TestStaleWorkspaceCanQuitWithoutOverwritingNewerSnapshot(t *testing.T) {
 	stale = updated.(model)
 	if stale.quitConfirmOpen || stale.inputMode != modeNormal {
 		t.Fatalf("cancelled quit state = confirm %v mode %d", stale.quitConfirmOpen, stale.inputMode)
+	}
+	if stale.response != "original response" || stale.responseModel.GetContent() != "original response" || stale.responseMeta != "200 OK" {
+		t.Fatalf("cancelled quit lost response: body=%q viewport=%q metadata=%q", stale.response, stale.responseModel.GetContent(), stale.responseMeta)
 	}
 	updated, _ = stale.Update(ctrlC)
 	stale = updated.(model)
@@ -627,6 +636,9 @@ func TestQuitStillBlocksOnNonConflictWorkspaceSaveFailure(t *testing.T) {
 	}
 	m := NewModel()
 	m.workspacePath = filepath.Join(parent, "workspace.json")
+	m.response = "original response"
+	m.responseMeta = "200 OK"
+	m.responseModel.SetContent(m.response)
 
 	ctrlC := tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
 	updated, _ := m.Update(ctrlC)
@@ -636,8 +648,11 @@ func TestQuitStillBlocksOnNonConflictWorkspaceSaveFailure(t *testing.T) {
 	if command != nil {
 		t.Fatal("non-conflict workspace save failure allowed quit")
 	}
-	if m.responseMeta != "Workspace save failed" || m.responseModel.GetContent() == "" {
-		t.Fatalf("save failure state = meta %q response %q", m.responseMeta, m.responseModel.GetContent())
+	if m.response != "original response" || m.responseMeta != "200 OK" || m.responseModel.GetContent() != "original response" {
+		t.Fatalf("save failure clobbered response: body=%q meta=%q viewport=%q", m.response, m.responseMeta, m.responseModel.GetContent())
+	}
+	if !strings.Contains(m.workspaceSaveStatus, "Workspace save failed") {
+		t.Fatalf("save failure status = %q", m.workspaceSaveStatus)
 	}
 }
 

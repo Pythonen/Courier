@@ -167,6 +167,7 @@ type model struct {
 	responseHeadersModel  viewport.Model
 	responseHeaders       string
 	responseMeta          string
+	workspaceSaveStatus   string
 	responseTests         string
 	responseTab           responseTab
 	requestTab            requestTab
@@ -790,6 +791,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, waitResponseStream(msg.stream))
 		}
 		historyUpdated := false
+		workspaceUpdated := false
 		for i := range m.history {
 			if m.history[i].requestID == msg.requestID {
 				m.history[i].responseBody = msg.responseBody
@@ -808,6 +810,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(msg.variableUpdates) > 0 {
 				m.variablesInput.SetEntries(mergeHeaderEntries(m.variablesInput.Entries(), msg.variableUpdates))
 				m.syncActiveEnvironment()
+				workspaceUpdated = true
 			}
 			m.responseModel.SetContent(msg.responseBody)
 			m.response = msg.responseBody
@@ -824,11 +827,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.requestContext = nil
 			}
 			m.resetResponseSearchMatches()
-			if len(msg.variableUpdates) > 0 {
-				m.saveWorkspaceWithStatus()
-			}
 		}
 		if historyUpdated && msg.stream == nil {
+			workspaceUpdated = true
+		}
+		if workspaceUpdated {
 			m.saveWorkspaceWithStatus()
 		}
 
@@ -905,8 +908,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cancelRequest()
 			}
 			if err := m.SaveWorkspace(); err != nil && !errors.Is(err, ErrWorkspaceConflict) {
-				m.responseMeta = "Workspace save failed"
-				m.responseModel.SetContent(err.Error())
+				m.workspaceSaveStatus = "Workspace save failed: " + err.Error()
 				return m, nil
 			}
 			return m, tea.Quit
@@ -1003,13 +1005,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if m.examplePos >= 0 && m.examplePos < len(refs) {
 						ref := refs[m.examplePos]
 						m.savedRequests[ref.requestIndex].examples[ref.exampleIndex].name = name
-						m.responseMeta = "Renamed saved example"
-						m.saveWorkspaceWithStatus()
+						if m.saveWorkspaceWithStatus().succeeded() {
+							m.responseMeta = "Renamed saved example"
+						}
 					}
 				} else if name != "" && m.collectionPos >= 0 && m.collectionPos < len(m.savedRequests) {
 					m.savedRequests[m.collectionPos].name = name
-					m.responseMeta = "Renamed saved request"
-					m.saveWorkspaceWithStatus()
+					if m.saveWorkspaceWithStatus().succeeded() {
+						m.responseMeta = "Renamed saved request"
+					}
 				}
 			default:
 				var cmd tea.Cmd
@@ -1035,21 +1039,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				previousCursorRow := m.variablesInput.cursorRow
 				previousCursorCol := m.variablesInput.cursorCol
+				successStatus := "Renamed environment to " + name
 				if m.environmentCreating {
 					m.syncActiveEnvironment()
 					m.environments = append(m.environments, environmentProfile{name: name})
 					m.environmentPos = len(m.environments) - 1
 					m.variablesInput.SetEntries(nil)
-					m.responseMeta = "Created environment " + name
+					successStatus = "Created environment " + name
 				} else {
 					m.environments[m.environmentPos].name = name
-					m.responseMeta = "Renamed environment to " + name
 				}
 				m.environmentNameOpen = false
 				m.environmentCreating = false
 				m.environmentNameInput.Blur()
-				if m.saveWorkspaceWithStatus() == workspaceSaveConflictHandled {
+				saveResult := m.saveWorkspaceWithStatus()
+				if saveResult == workspaceSaveConflictHandled {
 					m.restoreEnvironmentCursor(previousCursorRow, previousCursorCol)
+				} else if saveResult.succeeded() {
+					m.responseMeta = successStatus
 				}
 			default:
 				var cmd tea.Cmd
@@ -1149,6 +1156,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				previousActiveIndex := m.activeSavedIndex
 				previousCollectionPos := m.collectionPos
 				previousRequestCount := len(m.savedRequests)
+				successStatus := "Saved request locally"
 				updatedIndex := -1
 				var previousRequest savedRequest
 				if m.activeSavedIndex >= 0 && m.activeSavedIndex < len(m.savedRequests) {
@@ -1158,17 +1166,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					request.examples = m.savedRequests[m.activeSavedIndex].examples
 					m.savedRequests[m.activeSavedIndex] = request
 					m.collectionPos = m.activeSavedIndex
-					m.responseMeta = "Updated saved request"
+					successStatus = "Updated saved request"
 				} else {
 					m.savedRequests = append(m.savedRequests, request)
 					m.collectionPos = len(m.savedRequests) - 1
 					m.activeSavedIndex = m.collectionPos
-					m.responseMeta = "Saved request locally"
 				}
 				m.sidebarMode = sidebarCollections
 				saveResult := m.saveWorkspaceWithStatus()
 				if saveResult.succeeded() {
 					m.markRequestDraftClean()
+					m.responseMeta = successStatus
 				} else if saveResult == workspaceSaveConflictHandled {
 					m.collectionPos = clampWorkspacePosition(previousCollectionPos, len(m.savedRequests))
 				} else if updatedIndex >= 0 {
@@ -1275,9 +1283,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					previousCursorCol := m.variablesInput.cursorCol
 					m.environmentPendingD = false
 					m.activateEnvironmentIndex((m.environmentPos + 1) % len(m.environments))
-					m.responseMeta = "Environment: " + m.activeEnvironmentName()
-					if m.saveWorkspaceWithStatus() == workspaceSaveConflictHandled {
+					successStatus := "Environment: " + m.activeEnvironmentName()
+					saveResult := m.saveWorkspaceWithStatus()
+					if saveResult == workspaceSaveConflictHandled {
 						m.restoreEnvironmentCursor(previousCursorRow, previousCursorCol)
+					} else if saveResult.succeeded() {
+						m.responseMeta = successStatus
 					}
 				case "n":
 					m.environmentPendingD = false
@@ -1308,9 +1319,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 						m.variablesInput.SetEntries(m.environments[m.environmentPos].values)
 						m.environmentPendingD = false
-						m.responseMeta = "Deleted environment " + deleted
-						if m.saveWorkspaceWithStatus() == workspaceSaveConflictHandled {
+						saveResult := m.saveWorkspaceWithStatus()
+						if saveResult == workspaceSaveConflictHandled {
 							m.restoreEnvironmentCursor(previousCursorRow, previousCursorCol)
+						} else if saveResult.succeeded() {
+							m.responseMeta = "Deleted environment " + deleted
 						}
 					}
 				default:
@@ -1834,6 +1847,7 @@ func (m *model) sizeComponents() {
 	m.responseTestsModel.SetWidth(viewportWidth)
 	m.responseTestsModel.SetHeight(viewportHeight)
 	m.responseSearchInput.SetWidth(max(10, innerPromptWidth(mainWidth)))
+	m.responseFilterInput.SetWidth(max(10, innerPromptWidth(mainWidth)))
 	m.responseSaveInput.SetWidth(max(10, innerPromptWidth(mainWidth)))
 	m.collectionRenameInput.SetWidth(max(10, historyWidth-11))
 	m.environmentNameInput.SetWidth(max(10, mainWidth-28))

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -166,5 +167,35 @@ func TestResponseHeaderControlsRoundTripThroughExamplesAndExports(t *testing.T) 
 	mockHeaders, err := parseMockResponseHeaders(rawHeaders)
 	if err != nil || mockHeaders.Get("X-Test") != value {
 		t.Fatalf("mock headers = %#v, err = %v", mockHeaders, err)
+	}
+}
+
+func TestFailedExampleSavePreservesResponseAndRollsBackAppend(t *testing.T) {
+	regularFile := filepath.Join(t.TempDir(), "regular-file")
+	if err := os.WriteFile(regularFile, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	m := NewModel()
+	m.workspacePath = filepath.Join(regularFile, "workspace.json")
+	m.savedRequests = []savedRequest{{name: "Request", method: "GET", url: "https://example.test"}}
+	m.activeSavedIndex = 0
+	m.response = "original response"
+	m.responseMeta = "200 OK"
+	m.responseStatusCode = 200
+	m.responseModel.SetContent(m.response)
+
+	err := m.saveCurrentResponseExample()
+	if err == nil || !strings.Contains(err.Error(), "not a directory") {
+		t.Fatalf("save example error = %v", err)
+	}
+	if len(m.savedRequests[0].examples) != 0 {
+		t.Fatalf("failed save retained appended example: %#v", m.savedRequests[0].examples)
+	}
+	if m.response != "original response" || m.responseModel.GetContent() != "original response" || m.responseMeta != "200 OK" {
+		t.Fatalf("failed save clobbered response: body=%q viewport=%q metadata=%q", m.response, m.responseModel.GetContent(), m.responseMeta)
+	}
+	if !strings.Contains(m.workspaceSaveStatus, "Workspace save failed") {
+		t.Fatalf("failed save status = %q", m.workspaceSaveStatus)
 	}
 }

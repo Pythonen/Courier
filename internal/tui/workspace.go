@@ -486,11 +486,10 @@ func (m *model) saveWorkspaceWithStatus() workspaceSaveResult {
 				result = workspaceSaveConflictHandled
 			}
 		}
-		m.responseMeta = "Workspace save failed"
-		m.responseModel.SetContent(err.Error())
-		m.response = err.Error()
+		m.workspaceSaveStatus = "Workspace save failed: " + err.Error()
 		return result
 	}
+	m.workspaceSaveStatus = ""
 	return workspaceSaveSucceeded
 }
 
