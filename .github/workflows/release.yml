@@ -12,6 +12,10 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  GO_RELEASE_VERSION: "1.26.5"
+  GORELEASER_VERSION: "v2.17.1"
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -33,7 +37,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version: ${{ env.GO_RELEASE_VERSION }}
           cache: true
 
       - name: Run tests
@@ -42,7 +46,7 @@ jobs:
       - name: Release with GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
-          version: "~> v2"
+          version: ${{ env.GORELEASER_VERSION }}
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
