@@ -30,6 +30,7 @@ type responseMsg struct {
 	statusCode           int
 	duration             time.Duration
 	responseBytes        int
+	responseBytesAtLeast bool
 	finalURL             string
 	assertionResults     []AssertionResult
 	variableUpdates      []headerEntry
@@ -195,18 +196,19 @@ func (m model) DoRequest() tea.Cmd {
 			}
 		}
 		if responseSize > maxResponseBody {
-			assertionResults := evaluateAssertions(assertions, assertionResponse{status: resp.StatusCode, headers: resp.Header, body: body, bodyTruncated: bodyTruncated, duration: elapsed, size: responseSize})
+			assertionResults := evaluateAssertions(assertions, assertionResponse{status: resp.StatusCode, headers: resp.Header, body: body, bodyTruncated: bodyTruncated, duration: elapsed, size: responseSize, sizeIsLowerBound: bodyTruncated})
 			return responseMsg{
-				requestID:        requestID,
-				responseBody:     fmt.Sprintf("Response body exceeds the %s display limit.", formatByteCount(maxResponseBody)),
-				responseHeaders:  formatHeaders(resp.Header),
-				responseMeta:     responseMeta(resp, elapsed, responseSize, parsedURL.String(), unixTarget),
-				statusCode:       resp.StatusCode,
-				duration:         elapsed,
-				responseBytes:    responseSize,
-				finalURL:         responseFinalURL(resp, unixTarget),
-				assertionResults: assertionResults,
-				variableUpdates:  successfulVariableUpdates(assertions, assertionResults),
+				requestID:            requestID,
+				responseBody:         fmt.Sprintf("Response body exceeds the %s display limit.", formatByteCount(maxResponseBody)),
+				responseHeaders:      formatHeaders(resp.Header),
+				responseMeta:         responseMetaWithSizeBound(resp, elapsed, responseSize, bodyTruncated, parsedURL.String(), unixTarget),
+				statusCode:           resp.StatusCode,
+				duration:             elapsed,
+				responseBytes:        responseSize,
+				responseBytesAtLeast: bodyTruncated,
+				finalURL:             responseFinalURL(resp, unixTarget),
+				assertionResults:     assertionResults,
+				variableUpdates:      successfulVariableUpdates(assertions, assertionResults),
 			}
 		}
 
@@ -236,8 +238,7 @@ func readResponseBodyForAssertions(reader io.Reader, assertionLimit int64) (body
 	}
 
 	body = body[:assertionLimit]
-	remaining, err := io.Copy(io.Discard, reader)
-	return body, size + int(remaining), true, err
+	return body, size, true, nil
 }
 
 func cloneRequestForDigestRetry(request *http.Request, retryContext context.Context, authorization string) (*http.Request, error) {
@@ -269,7 +270,15 @@ func responseFinalURL(resp *http.Response, unixTarget ...*unixSocketTarget) stri
 }
 
 func responseMeta(resp *http.Response, elapsed time.Duration, size int, requestedURL string, unixTarget ...*unixSocketTarget) string {
-	meta := fmt.Sprintf("%s • %s • %s • %s", resp.Status, resp.Proto, elapsed.Round(time.Millisecond), formatByteCount(size))
+	return responseMetaWithSizeBound(resp, elapsed, size, false, requestedURL, unixTarget...)
+}
+
+func responseMetaWithSizeBound(resp *http.Response, elapsed time.Duration, size int, sizeIsLowerBound bool, requestedURL string, unixTarget ...*unixSocketTarget) string {
+	sizeText := formatByteCount(size)
+	if sizeIsLowerBound && size > 0 {
+		sizeText = ">" + formatByteCount(size-1)
+	}
+	meta := fmt.Sprintf("%s • %s • %s • %s", resp.Status, resp.Proto, elapsed.Round(time.Millisecond), sizeText)
 	finalURL := responseFinalURL(resp, unixTarget...)
 	displayRequestedURL := requestedURL
 	if len(unixTarget) > 0 && unixTarget[0] != nil {

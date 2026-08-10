@@ -19,12 +19,13 @@ type AssertionResult struct {
 }
 
 type assertionResponse struct {
-	status        int
-	headers       http.Header
-	body          []byte
-	bodyTruncated bool
-	duration      time.Duration
-	size          int
+	status           int
+	headers          http.Header
+	body             []byte
+	bodyTruncated    bool
+	duration         time.Duration
+	size             int
+	sizeIsLowerBound bool
 }
 
 func newTestsTable() headersTable {
@@ -121,6 +122,9 @@ func evaluateAssertion(expression, expected string, response assertionResponse) 
 		limit, err := parseAssertionBytes(expected)
 		if err != nil {
 			return strconv.Itoa(response.size), false, err.Error()
+		}
+		if response.sizeIsLowerBound {
+			return fmt.Sprintf(">=%d", response.size), false, fmt.Sprintf("total response size is unknown because reading stopped after the %s assertion limit", formatByteCount(maxAssertionResponseBody))
 		}
 		actual = strconv.Itoa(response.size)
 		return actual, response.size < limit, ""

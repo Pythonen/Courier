@@ -551,17 +551,25 @@ func TestDoRequest_ResponseBodyLimit(t *testing.T) {
 	}
 }
 
-func TestReadResponseBodyForAssertionsDrainsAndCountsBeyondLimit(t *testing.T) {
+func TestReadResponseBodyForAssertionsStopsAtLimitWithoutDraining(t *testing.T) {
 	reader := strings.NewReader("0123456789")
 	body, size, truncated, err := readResponseBodyForAssertions(reader, 4)
 	if err != nil {
 		t.Fatalf("read response: %v", err)
 	}
-	if string(body) != "0123" || size != 10 || !truncated {
+	if string(body) != "0123" || size != 5 || !truncated {
 		t.Fatalf("body = %q, size = %d, truncated = %t", body, size, truncated)
 	}
-	if reader.Len() != 0 {
-		t.Fatalf("reader retained %d bytes after drain", reader.Len())
+	if reader.Len() != 5 {
+		t.Fatalf("reader retained %d bytes, want 5 unread bytes", reader.Len())
+	}
+}
+
+func TestResponseMetaMarksLowerBoundSize(t *testing.T) {
+	resp := &http.Response{Status: "200 OK", Proto: "HTTP/1.1"}
+	meta := responseMetaWithSizeBound(resp, 25*time.Millisecond, maxAssertionResponseBody+1, true, "")
+	if !strings.Contains(meta, ">64.0 MiB") {
+		t.Fatalf("lower-bound response metadata = %q", meta)
 	}
 }
 

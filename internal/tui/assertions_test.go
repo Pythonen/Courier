@@ -103,14 +103,15 @@ func TestFailedResponseExtractionIsDescriptive(t *testing.T) {
 	}
 }
 
-func TestTruncatedResponseSkipsOnlyBodyDependentAssertions(t *testing.T) {
+func TestTruncatedResponseSkipsBodyAndUnknownSizeAssertions(t *testing.T) {
 	response := assertionResponse{
-		status:        http.StatusOK,
-		headers:       http.Header{"X-Response-Kind": {"large"}},
-		body:          []byte(`{"token":"partial"}`),
-		bodyTruncated: true,
-		duration:      25 * time.Millisecond,
-		size:          80 << 20,
+		status:           http.StatusOK,
+		headers:          http.Header{"X-Response-Kind": {"large"}},
+		body:             []byte(`{"token":"partial"}`),
+		bodyTruncated:    true,
+		duration:         25 * time.Millisecond,
+		size:             maxAssertionResponseBody + 1,
+		sizeIsLowerBound: true,
 	}
 	rules := []headerEntry{
 		{key: "status", value: "200"},
@@ -128,10 +129,14 @@ func TestTruncatedResponseSkipsOnlyBodyDependentAssertions(t *testing.T) {
 	}
 
 	results := evaluateAssertions(rules, response)
-	for index, result := range results[:6] {
+	for _, index := range []int{0, 1, 2, 4, 5} {
+		result := results[index]
 		if !result.Passed {
 			t.Errorf("metadata assertion %d failed: %#v", index, result)
 		}
+	}
+	if result := results[3]; result.Passed || !strings.Contains(result.Error, "total response size is unknown") || !strings.HasPrefix(result.Actual, ">=") {
+		t.Errorf("size assertion was evaluated against a lower bound: %#v", result)
 	}
 	for index, result := range results[6:] {
 		if result.Passed || !strings.Contains(result.Error, "64.0 MiB assertion limit") {
