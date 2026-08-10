@@ -24,6 +24,151 @@ var (
 	date    = "unknown"
 )
 
+type cliActionOptions struct {
+	version                  bool
+	importPostman            bool
+	importPostmanEnvironment bool
+	importOpenAPI            bool
+	importWSDL               bool
+	importProto              bool
+	importHAR                bool
+	importCurl               bool
+	importCurlFile           bool
+	exportCurl               bool
+	exportHTTPie             bool
+	exportPostman            bool
+	exportPostmanEnvironment bool
+	exportHAR                bool
+	run                      bool
+	mock                     bool
+	listCookies              bool
+	clearCookies             bool
+	setCookie                bool
+	cookieURL                bool
+	grpcServerSet            bool
+	protoPathSet             bool
+	iterationsSet            bool
+	delaySet                 bool
+	dataSet                  bool
+	runFormatSet             bool
+	bailSet                  bool
+	mockSelectorSet          bool
+}
+
+func validateCLIActions(options cliActionOptions) error {
+	if options.grpcServerSet && !options.importProto {
+		return errors.New("-grpc-server requires -import-proto")
+	}
+	if options.protoPathSet && !options.importProto {
+		return errors.New("-proto-path requires -import-proto")
+	}
+	for _, modifier := range []struct {
+		name string
+		set  bool
+	}{
+		{name: "-iterations", set: options.iterationsSet},
+		{name: "-delay", set: options.delaySet},
+		{name: "-data", set: options.dataSet},
+		{name: "-run-format", set: options.runFormatSet},
+		{name: "-bail", set: options.bailSet},
+	} {
+		if modifier.set && !options.run {
+			return fmt.Errorf("%s requires -run", modifier.name)
+		}
+	}
+	if options.mockSelectorSet && !options.mock {
+		return errors.New("-mock-selector requires -mock")
+	}
+	if options.cookieURL && !options.setCookie {
+		return errors.New("-cookie-url requires -set-cookie")
+	}
+	if options.setCookie && !options.cookieURL {
+		return errors.New("-set-cookie requires -cookie-url")
+	}
+	if options.importCurl && options.importCurlFile {
+		return conflictingCLIActionError([]string{"-import-curl", "-import-curl-file"})
+	}
+
+	imports := activeCLIFlags(
+		cliFlag{"-import-postman", options.importPostman},
+		cliFlag{"-import-postman-environment", options.importPostmanEnvironment},
+		cliFlag{"-import-openapi", options.importOpenAPI},
+		cliFlag{"-import-wsdl", options.importWSDL},
+		cliFlag{"-import-proto", options.importProto},
+		cliFlag{"-import-har", options.importHAR},
+		cliFlag{"-import-curl", options.importCurl},
+		cliFlag{"-import-curl-file", options.importCurlFile},
+	)
+	stdoutExports := activeCLIFlags(
+		cliFlag{"-export-curl", options.exportCurl},
+		cliFlag{"-export-httpie", options.exportHTTPie},
+	)
+	fileExports := activeCLIFlags(
+		cliFlag{"-export-postman", options.exportPostman},
+		cliFlag{"-export-postman-environment", options.exportPostmanEnvironment},
+		cliFlag{"-export-har", options.exportHAR},
+	)
+	if len(stdoutExports) > 1 || (len(stdoutExports) > 0 && len(fileExports) > 0) {
+		return conflictingCLIActionError(append(stdoutExports, fileExports...))
+	}
+	exports := append(stdoutExports, fileExports...)
+	cookieActions := activeCLIFlags(
+		cliFlag{"-list-cookies", options.listCookies},
+		cliFlag{"-clear-cookies", options.clearCookies},
+		cliFlag{"-set-cookie", options.setCookie},
+	)
+	if len(cookieActions) > 1 {
+		return conflictingCLIActionError(cookieActions)
+	}
+
+	terminalActionGroups := [][]string{
+		activeCLIFlags(cliFlag{"-version", options.version}),
+		exports,
+		activeCLIFlags(cliFlag{"-run", options.run}),
+		activeCLIFlags(cliFlag{"-mock", options.mock}),
+		cookieActions,
+	}
+	var activeGroups [][]string
+	for _, group := range terminalActionGroups {
+		if len(group) > 0 {
+			activeGroups = append(activeGroups, group)
+		}
+	}
+	// Imports are deliberately composable with one terminal action (for example,
+	// importing a collection and immediately exporting it). Version is the one
+	// exception because it exits before any import can run.
+	if options.version && len(imports) > 0 {
+		return conflictingCLIActionError(append([]string{"-version"}, imports...))
+	}
+	if len(activeGroups) > 1 {
+		var conflicting []string
+		for _, group := range activeGroups {
+			conflicting = append(conflicting, group...)
+		}
+		return conflictingCLIActionError(conflicting)
+	}
+	return nil
+}
+
+type cliFlag struct {
+	name   string
+	active bool
+}
+
+func activeCLIFlags(flags ...cliFlag) []string {
+	active := make([]string, 0, len(flags))
+	for _, candidate := range flags {
+		if candidate.active {
+			active = append(active, candidate.name)
+		}
+	}
+	return active
+}
+
+func conflictingCLIActionError(flags []string) error {
+	return fmt.Errorf("CLI actions %s cannot be used together", strings.Join(flags, ", "))
+}
+
 func main() {
 	versionFlag := flag.Bool("version", false, "print version information and exit")
 	workspaceFlag := flag.String("workspace", "", "path to the local Courier workspace JSON file")
@@ -56,6 +201,43 @@ func main() {
 	setCookieFlag := flag.String("set-cookie", "", "add a Set-Cookie value to the local workspace jar, then exit")
 	cookieURLFlag := flag.String("cookie-url", "", "absolute request URL used with -set-cookie")
 	flag.Parse()
+	explicitFlags := make(map[string]bool)
+	flag.Visit(func(visited *flag.Flag) {
+		explicitFlags[visited.Name] = true
+	})
+	if validationErr := validateCLIActions(cliActionOptions{
+		version:                  *versionFlag,
+		importPostman:            *collectionFlag != "",
+		importPostmanEnvironment: *environmentFlag != "",
+		importOpenAPI:            *openAPIFlag != "",
+		importWSDL:               *wsdlFlag != "",
+		importProto:              *protoFlag != "",
+		importHAR:                *harFlag != "",
+		importCurl:               *curlFlag != "",
+		importCurlFile:           *curlFileFlag != "",
+		exportCurl:               *exportCurlFlag != "",
+		exportHTTPie:             *exportHTTPieFlag != "",
+		exportPostman:            *exportPostmanFlag != "",
+		exportPostmanEnvironment: *exportPostmanEnvironmentFlag != "",
+		exportHAR:                *exportHARFlag != "",
+		run:                      *runFlag != "",
+		mock:                     *mockFlag != "",
+		listCookies:              *listCookiesFlag,
+		clearCookies:             *clearCookiesFlag,
+		setCookie:                *setCookieFlag != "",
+		cookieURL:                *cookieURLFlag != "",
+		grpcServerSet:            explicitFlags["grpc-server"],
+		protoPathSet:             explicitFlags["proto-path"],
+		iterationsSet:            explicitFlags["iterations"],
+		delaySet:                 explicitFlags["delay"],
+		dataSet:                  explicitFlags["data"],
+		runFormatSet:             explicitFlags["run-format"],
+		bailSet:                  explicitFlags["bail"],
+		mockSelectorSet:          explicitFlags["mock-selector"],
+	}); validationErr != nil {
+		fmt.Fprintln(os.Stderr, "Error:", validationErr)
+		os.Exit(1)
+	}
 	if *versionFlag {
 		fmt.Printf("courier %s (commit %s, built %s)\n", version, commit, date)
 		return
@@ -232,10 +414,6 @@ func main() {
 		return
 	}
 	if *mockFlag != "" {
-		if *runFlag != "" {
-			fmt.Fprintln(os.Stderr, "Error: -mock and -run cannot be used together")
-			os.Exit(1)
-		}
 		handler, mockErr := model.MockHandler(*mockSelectorFlag)
 		if mockErr != nil {
 			fmt.Fprintln(os.Stderr, "Error starting mock server:", mockErr)
