@@ -49,6 +49,10 @@ func (m *model) handleHistoryKeys(keyStr string) {
 				m.cookiePendingD = true
 			}
 			return
+		case "v":
+			m.cookiePendingD = false
+			m.cookieSecretsVisible = !m.cookieSecretsVisible
+			return
 		default:
 			m.cookiePendingD = false
 		}
@@ -266,7 +270,11 @@ func (m model) viewHistory(contentHeight int) string {
 		labelText = "Cookies"
 		position = m.cookiePos
 		for _, cookie := range m.Cookies() {
-			label := cookie.Domain + cookie.Path + " " + cookie.Name + "=" + cookie.Value
+			value := cookie.Value
+			if !m.cookieSecretsVisible {
+				value = maskedSecretValue(value)
+			}
+			label := cookie.Name + "=" + value + " " + cookie.Domain + cookie.Path
 			sidebarItems = append(sidebarItems, sidebarItem{method: "JAR", label: label})
 		}
 	default:
@@ -283,7 +291,11 @@ func (m model) viewHistory(contentHeight int) string {
 	} else if m.sidebarMode == sidebarExamples {
 		label += hintStyle.Render("  r dd")
 	} else if m.sidebarMode == sidebarCookies {
-		label += hintStyle.Render("  dd")
+		secretAction := "reveal"
+		if m.cookieSecretsVisible {
+			secretAction = "hide"
+		}
+		label += hintStyle.Render("  dd v:" + secretAction)
 	} else {
 		label += hintStyle.Render("  dd")
 	}

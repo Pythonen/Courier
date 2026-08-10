@@ -173,6 +173,7 @@ type model struct {
 	historyPendingD       bool
 	cookiePos             int
 	cookiePendingD        bool
+	cookieSecretsVisible  bool
 	responseModel         viewport.Model
 	response              string
 	responseRaw           string
@@ -1169,6 +1170,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, m.keymap.collections):
 			m.sidebarMode = (m.sidebarMode + 1) % sidebarModeCount
+			m.cookieSecretsVisible = false
 			m.setFocus(paneHistory)
 
 		case key.Matches(msg, m.keymap.cancel):

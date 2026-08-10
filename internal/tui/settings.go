@@ -62,6 +62,7 @@ type settingsPane struct {
 	config                 requestSettings
 	page                   settingsPage
 	cursor                 int
+	secretsVisible         bool
 	proxyInput             textinput.Model
 	proxyBypassInput       textinput.Model
 	caCertInput            textinput.Model
@@ -192,6 +193,16 @@ func (s *settingsPane) UpdateNormal(keyStr string) {
 		} else if s.page == settingsNetwork && s.cursor == 2 {
 			s.config.httpVersion = (s.config.httpVersion + 1) % httpVersionCount
 		}
+	case "v":
+		s.setSecretsVisible(!s.secretsVisible)
+	}
+}
+
+func (s *settingsPane) setSecretsVisible(visible bool) {
+	s.secretsVisible = visible
+	s.clientPFXPasswordInput.EchoMode = textinput.EchoPassword
+	if visible {
+		s.clientPFXPasswordInput.EchoMode = textinput.EchoNormal
 	}
 }
 
@@ -226,6 +237,7 @@ func (s *settingsPane) blurInputs() {
 func (s *settingsPane) Blur() {
 	s.blurInputs()
 	s.syncConfig()
+	s.setSecretsVisible(false)
 }
 
 func (s settingsPane) View(heights ...int) string {
@@ -252,11 +264,20 @@ func (s settingsPane) View(heights ...int) string {
 		if s.config.timeout == 0 {
 			timeoutValue = "no limit"
 		}
+		proxyView := s.proxyInput.View()
+		if !s.secretsVisible {
+			masked := maskProxyCredentials(s.proxyInput.Value())
+			if masked != s.proxyInput.Value() {
+				proxyInput := s.proxyInput
+				proxyInput.SetValue(masked)
+				proxyView = proxyInput.View()
+			}
+		}
 		rows = []string{
 			"Follow redirects: " + boolValue(s.config.followRedirects),
 			fmt.Sprintf("Timeout:          %s", timeoutValue),
 			"HTTP version:     " + activeCellStyle.Render(s.config.httpVersion.String()),
-			"Proxy:            " + s.proxyInput.View(),
+			"Proxy:            " + proxyView,
 			"Proxy bypass:     " + s.proxyBypassInput.View(),
 		}
 	}
@@ -269,12 +290,33 @@ func (s settingsPane) View(heights ...int) string {
 	}
 	header := headerStyle.Render(pageName) + hintStyle.Render("  p:page")
 	rows = append([]string{header}, rows...)
-	rows = append(rows, hintStyle.Render(" jk:move  space:toggle  hl:adjust  i:edit  ctrl+t:close"))
+	secretAction := "reveal"
+	if s.secretsVisible {
+		secretAction = "hide"
+	}
+	rows = append(rows, hintStyle.Render(" jk:move  space:toggle  hl:adjust  i:edit  v:"+secretAction+" secrets  ctrl+t:close"))
 	height := len(rows)
 	if len(heights) > 0 {
 		height = heights[0]
 	}
 	return renderCursorViewport(rows, s.cursor+1, height)
+}
+
+func maskProxyCredentials(value string) string {
+	authorityStart := 0
+	if scheme := strings.Index(value, "://"); scheme >= 0 {
+		authorityStart = scheme + 3
+	}
+	authorityEnd := len(value)
+	if offset := strings.IndexAny(value[authorityStart:], "/?#"); offset >= 0 {
+		authorityEnd = authorityStart + offset
+	}
+	authority := value[authorityStart:authorityEnd]
+	at := strings.LastIndex(authority, "@")
+	if at < 0 {
+		return value
+	}
+	return value[:authorityStart] + maskedSecretValue(authority[:at]) + authority[at:]
 }
 
 func configuredClient(base *http.Client, settings requestSettings) (*http.Client, error) {

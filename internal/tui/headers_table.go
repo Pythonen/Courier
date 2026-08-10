@@ -33,6 +33,9 @@ type headersTable struct {
 	valueLabel       string
 	keyPlaceholder   string
 	valuePlaceholder string
+	maskAllValues    bool
+	maskSensitive    bool
+	secretsVisible   bool
 }
 
 func newEntryRow(keyPlaceholder, valuePlaceholder string) headerRow {
@@ -52,15 +55,21 @@ func newEntryRow(keyPlaceholder, valuePlaceholder string) headerRow {
 }
 
 func newHeadersTable() headersTable {
-	return newKeyValueTable("Header", "Value", "Header-Name", "value")
+	table := newKeyValueTable("Header", "Value", "Header-Name", "value")
+	table.maskSensitive = true
+	return table
 }
 
 func newParamsTable() headersTable {
-	return newKeyValueTable("Parameter", "Value", "parameter", "value")
+	table := newKeyValueTable("Parameter", "Value", "parameter", "value")
+	table.maskSensitive = true
+	return table
 }
 
 func newCookiesTable() headersTable {
-	return newKeyValueTable("Cookie", "Value", "cookie-name", "value")
+	table := newKeyValueTable("Cookie", "Value", "cookie-name", "value")
+	table.maskAllValues = true
+	return table
 }
 
 func newKeyValueTable(keyLabel, valueLabel, keyPlaceholder, valuePlaceholder string) headersTable {
@@ -118,6 +127,7 @@ func (h *headersTable) SetEntries(entries []headerEntry) {
 	h.cursorRow = 0
 	h.cursorCol = 0
 	h.pendingD = false
+	h.secretsVisible = false
 	h.blurAll()
 }
 
@@ -127,6 +137,7 @@ func (h *headersTable) Focus() {
 
 func (h *headersTable) Blur() {
 	h.focused = false
+	h.secretsVisible = false
 	h.blurAll()
 }
 
@@ -146,6 +157,7 @@ func (h *headersTable) FocusCurrent() tea.Cmd {
 	if h.cursorCol == 0 {
 		return h.rows[h.cursorRow].key.Focus()
 	}
+	h.configureValueInput(&h.rows[h.cursorRow])
 	return h.rows[h.cursorRow].value.Focus()
 }
 
@@ -157,6 +169,7 @@ func (h *headersTable) UpdateInsert(msg tea.Msg) tea.Cmd {
 	}
 	if h.cursorCol == 0 {
 		h.rows[h.cursorRow].key, cmd = h.rows[h.cursorRow].key.Update(msg)
+		h.configureValueInput(&h.rows[h.cursorRow])
 	} else {
 		h.rows[h.cursorRow].value, cmd = h.rows[h.cursorRow].value.Update(msg)
 	}
@@ -206,9 +219,51 @@ func (h *headersTable) UpdateNormal(keyStr string) {
 		} else {
 			h.pendingD = true
 		}
+	case "v":
+		if h.maskAllValues || h.maskSensitive {
+			h.secretsVisible = !h.secretsVisible
+			for index := range h.rows {
+				h.configureValueInput(&h.rows[index])
+			}
+		}
+		h.pendingD = false
 	default:
 		h.pendingD = false
 	}
+}
+
+func (h *headersTable) configureValueInput(row *headerRow) {
+	row.value.EchoMode = textinput.EchoNormal
+	if h.valueIsSecret(row.key.Value()) && !h.secretsVisible {
+		row.value.EchoMode = textinput.EchoPassword
+		row.value.EchoCharacter = '•'
+	}
+}
+
+func (h headersTable) valueIsSecret(key string) bool {
+	return h.maskAllValues || (h.maskSensitive && sensitiveValueName(key))
+}
+
+func sensitiveValueName(name string) bool {
+	normalized := strings.ToLower(name)
+	normalized = strings.NewReplacer("-", "", "_", "", ".", "", " ", "").Replace(normalized)
+	for _, marker := range []string{
+		"authorization", "cookie", "apikey", "accesstoken", "refreshtoken",
+		"idtoken", "bearertoken", "sessiontoken", "token", "clientsecret", "secret",
+		"password", "passwd", "passphrase", "privatekey", "credential", "signature",
+	} {
+		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func maskedSecretValue(value string) string {
+	if value == "" {
+		return ""
+	}
+	return "••••••••"
 }
 
 func (h *headersTable) SetWidth(w int) {
@@ -275,6 +330,7 @@ func (h *headersTable) View() string {
 	// Data rows
 	for i, row := range h.rows {
 		isActiveRow := h.focused && i == h.cursorRow
+		h.configureValueInput(&row)
 
 		var keyView, valView string
 
@@ -294,6 +350,9 @@ func (h *headersTable) View() string {
 			valView = truncOrPad(row.value.View(), valCol)
 		} else {
 			v := row.value.Value()
+			if h.valueIsSecret(row.key.Value()) && !h.secretsVisible {
+				v = maskedSecretValue(v)
+			}
 			if v == "" {
 				v = cellStyle.Faint(true).Render(row.value.Placeholder)
 			} else {
@@ -343,7 +402,15 @@ func (h *headersTable) View() string {
 		h.viewport.SetYOffset(cursorLine)
 	}
 
-	return h.viewport.View() + "\n" + hintStyle.Render(" hjkl:move  i:edit  o:add  dd:delete")
+	hint := " hjkl:move  i:edit  o:add  dd:delete"
+	if h.maskAllValues || h.maskSensitive {
+		action := "reveal"
+		if h.secretsVisible {
+			action = "hide"
+		}
+		hint += "  v:" + action + " secrets"
+	}
+	return h.viewport.View() + "\n" + hintStyle.Render(hint)
 }
 
 // truncOrPad ensures s renders to exactly width visible characters.
