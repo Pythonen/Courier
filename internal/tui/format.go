@@ -30,6 +30,11 @@ func formatResponseBody(body []byte, contentType string) string {
 		src = prettyHTML(src)
 	}
 
+	// Parsers may decode textual representations back into terminal controls
+	// (for example, HTML numeric character references). Sanitize their output
+	// before Chroma adds its own trusted ANSI styling.
+	src = sanitizeTerminalText(src)
+
 	return highlight(src, contentType)
 }
 

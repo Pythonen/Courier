@@ -42,6 +42,20 @@ func TestFormattedResponseSanitizesBeforeAddingANSI(t *testing.T) {
 	}
 }
 
+func TestFormattedHTMLResanitizesDecodedCharacterReferences(t *testing.T) {
+	display := formatResponseBody([]byte(`<p>&#x1b;]52;c;Y2xpcGJvYXJk&#x7;</p>`), "text/html")
+	for _, unsafe := range []string{"\x1b]52", "\x07"} {
+		if strings.Contains(display, unsafe) {
+			t.Fatalf("formatted HTML contains decoded terminal control %q: %q", unsafe, display)
+		}
+	}
+
+	plain := ansi.Strip(display)
+	if !strings.Contains(plain, `\x1b]52`) || !strings.Contains(plain, `\x07`) {
+		t.Fatalf("formatted HTML does not show escaped controls: %q", plain)
+	}
+}
+
 func TestStreamingResponseKeepsRawAndSanitizesDisplay(t *testing.T) {
 	m := NewModel()
 	requestID := uuid.New()
