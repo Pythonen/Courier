@@ -18,11 +18,9 @@ func formatResponseBody(body []byte, contentType string) string {
 		contentType = strings.TrimSpace(contentType[:i])
 	}
 
-	// Sanitize before syntax highlighting so response-provided escape
-	// sequences cannot be mistaken for formatter-owned ANSI styling.
-	src := sanitizeTerminalText(string(body))
-
-	// Pretty-print known formats before highlighting
+	// Pretty-print known formats while their source syntax is still intact.
+	// Sanitization below protects both unchanged input and parser output.
+	src := string(body)
 	switch contentType {
 	case "application/json", "text/json":
 		src = prettyJSON(src)

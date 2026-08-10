@@ -56,6 +56,21 @@ func TestFormattedHTMLResanitizesDecodedCharacterReferences(t *testing.T) {
 	}
 }
 
+func TestFormattedJSONPrettyPrintsTabsBeforeSanitizing(t *testing.T) {
+	display := formatResponseBody([]byte("{\n\t\"ok\": true,\n\t\"message\": \"safe\u202eevil\"\n}"), "application/json")
+	if strings.Contains(display, "\u202e") {
+		t.Fatalf("formatted JSON contains a direction-control character: %q", display)
+	}
+
+	plain := ansi.Strip(display)
+	if strings.Contains(plain, `\t`) {
+		t.Fatalf("valid JSON indentation was escaped instead of formatted: %q", plain)
+	}
+	if !strings.Contains(plain, "\n  \"ok\": true,") || !strings.Contains(plain, `safe\u202eevil`) {
+		t.Fatalf("formatted JSON does not contain indented, sanitized content: %q", plain)
+	}
+}
+
 func TestStreamingResponseKeepsRawAndSanitizesDisplay(t *testing.T) {
 	m := NewModel()
 	requestID := uuid.New()
