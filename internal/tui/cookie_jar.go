@@ -113,7 +113,7 @@ func (jar *persistentCookieJar) Restore(cookies []storedCookie) {
 		if record.Secure {
 			scheme = "https"
 		}
-		target := &url.URL{Scheme: scheme, Host: record.Domain, Path: record.Path}
+		target := &url.URL{Scheme: scheme, Host: cookieURLHost(record.Domain), Path: record.Path}
 		cookie := &http.Cookie{
 			Name: record.Name, Value: record.Value, Path: record.Path,
 			Secure: record.Secure, HttpOnly: record.HTTPOnly, SameSite: record.SameSite,
@@ -133,12 +133,19 @@ func (jar *persistentCookieJar) Delete(record storedCookie) {
 	if record.Secure {
 		scheme = "https"
 	}
-	target := &url.URL{Scheme: scheme, Host: record.Domain, Path: record.Path}
+	target := &url.URL{Scheme: scheme, Host: cookieURLHost(record.Domain), Path: record.Path}
 	cookie := &http.Cookie{Name: record.Name, Value: "", Path: record.Path, MaxAge: -1}
 	if !record.HostOnly {
 		cookie.Domain = record.Domain
 	}
 	jar.SetCookies(target, []*http.Cookie{cookie})
+}
+
+func cookieURLHost(domain string) string {
+	if strings.Contains(domain, ":") && !strings.HasPrefix(domain, "[") {
+		return "[" + domain + "]"
+	}
+	return domain
 }
 
 func (jar *persistentCookieJar) Add(rawURL, rawCookie string) error {
