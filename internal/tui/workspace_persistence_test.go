@@ -126,12 +126,16 @@ func TestWorkspaceLockHelper(t *testing.T) {
 	if os.Getenv(workspaceLockHelperEnv) != "1" {
 		return
 	}
-	fmt.Fprintln(os.Stdout, workspaceLockHelperReady)
+	if _, err := fmt.Fprintln(os.Stdout, workspaceLockHelperReady); err != nil {
+		t.Fatal(err)
+	}
 	lock, err := acquireWorkspaceLock(os.Getenv(workspaceLockHelperPathEnv))
 	if err != nil {
 		t.Fatal(err)
 	}
-	fmt.Fprintln(os.Stdout, workspaceLockHelperHeld)
+	if _, err := fmt.Fprintln(os.Stdout, workspaceLockHelperHeld); err != nil {
+		t.Fatal(err)
+	}
 	if err := lock.release(); err != nil {
 		t.Fatal(err)
 	}
