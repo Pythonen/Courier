@@ -18,6 +18,7 @@ Built-in method presets are GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS, TRACE,
 
 - [Run Courier](#run-courier)
   - [Install with Homebrew](#install-with-homebrew)
+  - [Install with Go](#install-with-go)
   - [Prerequisites](#prerequisites)
   - [Start directly](#start-directly)
   - [Or build a binary](#or-build-a-binary)
@@ -44,30 +45,39 @@ Upgrade an existing installation with `brew upgrade --cask courier`. Release
 maintainer setup and tagging instructions are in
 [`docs/RELEASING.md`](./docs/RELEASING.md).
 
+### Install with Go
+
+With a supported Go toolchain, install the latest release directly:
+
+```bash
+go install github.com/Pythonen/Courier/cmd/courier@latest
+courier
+```
+
 ### Prerequisites
 
-- Go 1.25+
+- Go 1.25.12 or newer
 
 ### Start directly
 
 ```bash
-go run ./cmd
+go run ./cmd/courier
 ```
 
 Courier loads and saves its local workspace at your operating system's user config directory (for example, `~/Library/Application Support/courier/workspace.json` on macOS). Use a different file when needed:
 
 ```bash
-go run ./cmd -workspace /path/to/workspace.json
+go run ./cmd/courier -workspace /path/to/workspace.json
 ```
 
 Inspect, manually add, or clear cookies in that workspace without opening the TUI:
 
 ```bash
-go run ./cmd -workspace ./courier-workspace.json -list-cookies
-go run ./cmd -workspace ./courier-workspace.json \
+go run ./cmd/courier -workspace ./courier-workspace.json -list-cookies
+go run ./cmd/courier -workspace ./courier-workspace.json \
   -cookie-url https://api.example.test/account \
   -set-cookie 'session=token; Path=/; Secure; HttpOnly'
-go run ./cmd -workspace ./courier-workspace.json -clear-cookies
+go run ./cmd/courier -workspace ./courier-workspace.json -clear-cookies
 ```
 
 `-set-cookie` accepts a standard `Set-Cookie` value. Domain, path, expiry, Secure, HttpOnly, SameSite, and host-only behavior are retained; expired cookies and server deletion cookies are removed. Cookie values are sensitive and are stored in the same owner-only (`0600`) workspace as credentials.
@@ -75,7 +85,7 @@ go run ./cmd -workspace ./courier-workspace.json -clear-cookies
 Import Postman Collection v2.x requests and environment values into a Courier workspace with:
 
 ```bash
-go run ./cmd -workspace ./courier-workspace.json \
+go run ./cmd/courier -workspace ./courier-workspace.json \
   -import-postman ./collection.json \
   -import-postman-environment ./environment.json
 ```
@@ -85,7 +95,7 @@ Imports are merged into the local workspace before the TUI opens. Collection fol
 Export the local workspace back to offline Postman-compatible JSON files with:
 
 ```bash
-go run ./cmd -workspace ./courier-workspace.json \
+go run ./cmd/courier -workspace ./courier-workspace.json \
   -export-postman ./courier.postman_collection.json \
   -export-postman-environment ./courier.postman_environment.json
 ```
@@ -95,7 +105,7 @@ Collection export uses Postman Collection v2.1, retains folder paths, request bo
 Import Swagger 2.0 or OpenAPI 3.x JSON/YAML definitions with:
 
 ```bash
-go run ./cmd -workspace ./courier-workspace.json \
+go run ./cmd/courier -workspace ./courier-workspace.json \
   -import-openapi ./openapi.yaml
 ```
 
@@ -104,7 +114,7 @@ Courier creates one saved request per supported operation. It converts server an
 Import SOAP operations from a WSDL 1.1 document with:
 
 ```bash
-go run ./cmd -workspace ./courier-workspace.json -import-wsdl ./service.wsdl
+go run ./cmd/courier -workspace ./courier-workspace.json -import-wsdl ./service.wsdl
 ```
 
 Courier discovers service ports, SOAP 1.1 and SOAP 1.2 bindings, endpoint addresses, actions, input messages, and inline XML Schema fields. Each binding operation becomes a saved POST request with the correct SOAP content type, SOAPAction handling, and an editable XML envelope containing `{{field}}` placeholders. Generated SOAP requests use the same environments, authorization, TLS, runner, assertions, examples, and export features as other HTTP requests.
@@ -112,7 +122,7 @@ Courier discovers service ports, SOAP 1.1 and SOAP 1.2 bindings, endpoint addres
 Import every RPC in a local protobuf service definition with:
 
 ```bash
-go run ./cmd -workspace ./courier-workspace.json \
+go run ./cmd/courier -workspace ./courier-workspace.json \
   -import-proto ./proto/service.proto \
   -proto-path ./proto/vendor,./shared/proto \
   -grpc-server grpcs://api.example.test:7443
@@ -123,7 +133,7 @@ Courier compiles `.proto` files natively in Go, resolves multi-file imports from
 Import HTTP Archive 1.2 traffic captured by browsers and local proxies with:
 
 ```bash
-go run ./cmd -workspace ./courier-workspace.json -import-har ./capture.har
+go run ./cmd/courier -workspace ./courier-workspace.json -import-har ./capture.har
 ```
 
 Each HAR entry becomes a saved request with its method, URL, query, headers, cookies, and body. Captured responses become local saved examples, including base64-decoded response content, so they can be inspected or served by Courier's mock server.
@@ -131,7 +141,7 @@ Each HAR entry becomes a saved request with its method, URL, query, headers, coo
 Export the saved collection and its response examples back to HAR 1.2 with:
 
 ```bash
-go run ./cmd -workspace ./courier-workspace.json -export-har ./courier.har
+go run ./cmd/courier -workspace ./courier-workspace.json -export-har ./courier.har
 ```
 
 The export contains standard replayable HAR request and response fields. Courier-specific extension fields preserve authorization settings, structured body modes, assertions, original URL/parameter separation, and multiple named response examples across a Courier HAR round trip. Export refuses to overwrite an existing file and writes with owner-only permissions (`0600`).
@@ -139,10 +149,10 @@ The export contains standard replayable HAR request and response fields. Courier
 Import a cURL command directly or from a text file, and export a saved request by its one-based collection index or exact name:
 
 ```bash
-go run ./cmd -import-curl "curl https://api.example.com/users"
-go run ./cmd -import-curl-file ./request.curl
-go run ./cmd -export-curl 1
-go run ./cmd -export-httpie "Users / Create user"
+go run ./cmd/courier -import-curl "curl https://api.example.com/users"
+go run ./cmd/courier -import-curl-file ./request.curl
+go run ./cmd/courier -export-curl 1
+go run ./cmd/courier -export-httpie "Users / Create user"
 ```
 
 The cURL importer parses command text without executing a shell. It supports request methods, headers, Basic, Digest, and AWS Signature v4 auth, cookies, query strings, raw and URL-encoded data, multipart forms, binary files, and `--unix-socket`. Unix-socket requests export back to an executable cURL command using the same option. HTTPie export covers headers, query values, cookies, Basic and Digest auth, token placeholders, raw/form/multipart/binary/GraphQL bodies, and shell-safe quoting; Unix-socket requests explicitly direct you to the cURL exporter because stock HTTPie requires a plugin for that transport.
@@ -150,13 +160,13 @@ The cURL importer parses command text without executing a shell. It supports req
 Run the entire saved collection, one request, or a Postman folder path without opening the TUI:
 
 ```bash
-go run ./cmd -run all
-go run ./cmd -run 2 -iterations 10 -delay 250ms
-go run ./cmd -run "Users" -run-format json
-go run ./cmd -run all -data ./iterations.csv
-go run ./cmd -environment Production -run all
-go run ./cmd -run all -bail
-go run ./cmd -run all -run-format junit > courier-results.xml
+go run ./cmd/courier -run all
+go run ./cmd/courier -run 2 -iterations 10 -delay 250ms
+go run ./cmd/courier -run "Users" -run-format json
+go run ./cmd/courier -run all -data ./iterations.csv
+go run ./cmd/courier -environment Production -run all
+go run ./cmd/courier -run all -bail
+go run ./cmd/courier -run all -run-format junit > courier-results.xml
 ```
 
 The runner executes requests sequentially using the workspace environment and a shared cookie jar. `-data` accepts a CSV file with a header row or a JSON array of objects; each row becomes an iteration and overrides matching environment variables. `-iterations` repeats the complete data set, `-delay` pauses between requests, and `-bail` stops after the first request or assertion failure. Text output is human-readable, JSON exposes the structured result, and JUnit XML integrates with CI test-report viewers. Transport failures and HTTP 4xx/5xx responses are reported as failures and produce a non-zero process exit status. `Ctrl+C` or `SIGTERM` cancels a run.
@@ -164,8 +174,8 @@ The runner executes requests sequentially using the workspace environment and a 
 Serve saved response examples as an offline mock API with:
 
 ```bash
-go run ./cmd -mock 127.0.0.1:8080
-go run ./cmd -mock 127.0.0.1:8080 -mock-selector "Users"
+go run ./cmd/courier -mock 127.0.0.1:8080
+go run ./cmd/courier -mock 127.0.0.1:8080 -mock-selector "Users"
 ```
 
 The mock server matches HTTP method, path, wildcard `{{pathVariables}}`, and query values, then returns the closest saved example. Captured path and active environment variables are resolved in example headers and bodies. Use `X-Mock-Response-Name` or `X-Mock-Response-Code` to select a particular example. Set `X-Mock-Match-Request-Headers` to a comma-separated list of header names or `X-Mock-Match-Request-Body: true` to require those request details to match. The server binds only to the address you provide, runs entirely from the local workspace, and shuts down cleanly on `Ctrl+C` or `SIGTERM`.
@@ -173,7 +183,7 @@ The mock server matches HTTP method, path, wildcard `{{pathVariables}}`, and que
 ### Or build a binary
 
 ```bash
-go build -o courier ./cmd
+go build -o courier ./cmd/courier
 ./courier
 ```
 

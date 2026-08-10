@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"courier/tui/internal/tui"
+	"github.com/Pythonen/Courier/internal/tui"
 	"encoding/json"
 	"errors"
 	"flag"

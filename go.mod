@@ -1,4 +1,4 @@
-module courier/tui
+module github.com/Pythonen/Courier
 
 go 1.25.12
 
