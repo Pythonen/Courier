@@ -80,12 +80,11 @@ func (m *model) applySavedExample(ref savedExampleRef) {
 	m.response = example.responseBody
 	m.responseRaw = example.responseRaw
 	m.responseRawAvailable = example.responseRawAvailable
-	m.responseHeaders = example.responseHeaders
+	m.setResponseHeaders(example.responseHeaders)
 	m.responseMeta = example.responseMeta
 	m.responseStatusCode = example.statusCode
 	m.responseTests = "Saved example: " + example.name
 	m.responseModel.SetContent(m.response)
-	m.responseHeadersModel.SetContent(m.responseHeaders)
 	m.responseTestsModel.SetContent(m.responseTests)
 }
 

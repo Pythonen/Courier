@@ -487,8 +487,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.socketIO = msg.session
 		m.cancelRequest = func() { closeSocketIOSession(msg.session) }
-		m.responseHeaders = formatHeaders(msg.session.headers)
-		m.responseHeadersModel.SetContent(m.responseHeaders)
+		m.setResponseHeaders(formatHeaders(msg.session.headers))
 		m.responseMeta = fmt.Sprintf("Socket.IO connected • %s", msg.duration.Round(time.Millisecond))
 		m.responseStatusCode = http.StatusSwitchingProtocols
 		_ = m.appendSocketIOEntry(msg.requestID, "CONNECTED "+msg.session.url+"\n")
@@ -583,8 +582,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.mqtt = msg.session
 		m.cancelRequest = func() { terminateMQTTSession(msg.session) }
-		m.responseHeaders = mqttConnectionSummary(msg.session.config)
-		m.responseHeadersModel.SetContent(m.responseHeaders)
+		m.setResponseHeaders(mqttConnectionSummary(msg.session.config))
 		m.responseMeta = fmt.Sprintf("MQTT %s connected • %s", msg.session.config.version, msg.duration.Round(time.Millisecond))
 		m.responseStatusCode = http.StatusOK
 		_ = m.appendMQTTEntry(msg.requestID, "CONNECTED "+msg.session.url+"\n")
@@ -700,8 +698,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			closeWebSocketSession(msg.session)
 		}
-		m.responseHeaders = msg.headers
-		m.responseHeadersModel.SetContent(msg.headers)
+		m.setResponseHeaders(msg.headers)
 		m.responseMeta = fmt.Sprintf("101 Switching Protocols • connected • %s", msg.duration.Round(time.Millisecond))
 		m.responseStatusCode = http.StatusSwitchingProtocols
 		_ = m.appendWebSocketEntry(msg.requestID, "CONNECTED "+msg.session.url+"\n")
@@ -812,8 +809,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.response = msg.responseBody
 			m.responseRaw = msg.responseRaw
 			m.responseRawAvailable = msg.responseRawAvailable
-			m.responseHeadersModel.SetContent(msg.responseHeaders)
-			m.responseHeaders = msg.responseHeaders
+			m.setResponseHeaders(msg.responseHeaders)
 			m.responseMeta = msg.responseMeta
 			m.responseStatusCode = msg.statusCode
 			m.assertionResults = msg.assertionResults
@@ -1177,8 +1173,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.responseRawAvailable = false
 				m.responseStatusCode = 0
 				m.responseModel.SetContent(m.response)
-				m.responseHeaders = ""
-				m.responseHeadersModel.SetContent("")
+				m.setResponseHeaders("")
 				m.responseTests = ""
 				m.responseTestsModel.SetContent("")
 				m.assertionResults = nil
@@ -1364,8 +1359,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if url != "" {
 				m.response = fmt.Sprintf("Sending request %s %s ...", method, url)
 				m.responseModel.SetContent(m.response)
-				m.responseHeaders = ""
-				m.responseHeadersModel.SetContent("")
+				m.setResponseHeaders("")
 				m.responseTests = ""
 				m.responseTestsModel.SetContent("")
 				m.assertionResults = nil
@@ -1936,8 +1930,13 @@ func formatHeaders(h http.Header) string {
 	var b strings.Builder
 	for _, k := range keys {
 		for _, v := range h[k] {
-			fmt.Fprintf(&b, "%s: %s\n", sanitizeTerminalText(k), sanitizeTerminalText(v))
+			fmt.Fprintf(&b, "%s: %s\n", k, v)
 		}
 	}
 	return b.String()
+}
+
+func (m *model) setResponseHeaders(headers string) {
+	m.responseHeaders = headers
+	m.responseHeadersModel.SetContent(sanitizeTerminalText(headers))
 }

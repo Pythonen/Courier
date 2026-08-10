@@ -234,11 +234,10 @@ func (m *model) applyHistoryItem(item historyItem) {
 	m.responseRaw = item.responseRaw
 	m.responseRawAvailable = item.responseRawAvailable
 	m.responseStatusCode = 0
-	m.responseHeaders = item.responseHeaders
+	m.setResponseHeaders(item.responseHeaders)
 	m.responseMeta = item.responseMeta
 	m.responseTests = item.responseTests
 	m.responseModel.SetContent(m.response)
-	m.responseHeadersModel.SetContent(m.responseHeaders)
 	m.responseTestsModel.SetContent(m.responseTests)
 	m.setMethodForURL(item.method, item.url)
 	m.markRequestDraftClean()

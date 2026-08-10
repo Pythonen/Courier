@@ -111,9 +111,31 @@ func TestWebSocketTranscriptKeepsRawAndSanitizesDisplay(t *testing.T) {
 }
 
 func TestHeadersAndAssertionsSanitizeRemoteValues(t *testing.T) {
-	headers := formatHeaders(http.Header{"X-Test": {"before\x1b]0;spoofed\x07after"}})
-	if strings.Contains(headers, "\x1b") || strings.Contains(headers, "\x07") || !strings.Contains(headers, `\x1b]0`) {
-		t.Fatalf("unsafe formatted headers: %q", headers)
+	value := "before\tmiddle\u202eafter\x1b]0;spoofed\x07"
+	headers := formatHeaders(http.Header{"X-Test": {value}})
+	if !strings.Contains(headers, value) {
+		t.Fatalf("raw formatted headers were changed: %q", headers)
+	}
+
+	m := NewModel()
+	requestID := uuid.New()
+	m.requestId = requestID
+	m.history = []historyItem{{requestID: requestID}}
+	updated, _ := m.Update(responseMsg{requestID: requestID, responseHeaders: headers})
+	m = updated.(model)
+	display := m.responseHeadersModel.GetContent()
+	for _, unsafe := range []string{"\t", "\u202e", "\x1b", "\x07"} {
+		if strings.Contains(display, unsafe) {
+			t.Fatalf("header viewport contains unsafe control %q: %q", unsafe, display)
+		}
+	}
+	for _, visible := range []string{`\t`, `\u202e`, `\x1b]0`, `\x07`} {
+		if !strings.Contains(display, visible) {
+			t.Fatalf("header viewport does not expose escaped control %q: %q", visible, display)
+		}
+	}
+	if m.responseHeaders != headers || m.history[0].responseHeaders != headers {
+		t.Fatalf("response update changed raw headers: response=%q history=%q want=%q", m.responseHeaders, m.history[0].responseHeaders, headers)
 	}
 
 	results := formatAssertionResults([]AssertionResult{{Expression: "body", Expected: "ok", Actual: "bad\x1b[2J", Passed: false}})
