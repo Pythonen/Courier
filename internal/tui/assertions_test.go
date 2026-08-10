@@ -103,6 +103,48 @@ func TestFailedResponseExtractionIsDescriptive(t *testing.T) {
 	}
 }
 
+func TestTruncatedResponseSkipsOnlyBodyDependentAssertions(t *testing.T) {
+	response := assertionResponse{
+		status:        http.StatusOK,
+		headers:       http.Header{"X-Response-Kind": {"large"}},
+		body:          []byte(`{"token":"partial"}`),
+		bodyTruncated: true,
+		duration:      25 * time.Millisecond,
+		size:          80 << 20,
+	}
+	rules := []headerEntry{
+		{key: "status", value: "200"},
+		{key: "header.X-Response-Kind", value: "large"},
+		{key: "time.lt", value: "1s"},
+		{key: "size.lt", value: "100MiB"},
+		{key: "set.statusCode", value: "status"},
+		{key: "set.kind", value: "header.X-Response-Kind"},
+		{key: "body.contains", value: "partial"},
+		{key: "body.matches", value: "partial"},
+		{key: "json.token", value: "partial"},
+		{key: "set.body", value: "body"},
+		{key: "set.token", value: "json.token"},
+		{key: "set.match", value: "body.matches:(partial)"},
+	}
+
+	results := evaluateAssertions(rules, response)
+	for index, result := range results[:6] {
+		if !result.Passed {
+			t.Errorf("metadata assertion %d failed: %#v", index, result)
+		}
+	}
+	for index, result := range results[6:] {
+		if result.Passed || !strings.Contains(result.Error, "64.0 MiB assertion limit") {
+			t.Errorf("body assertion %d was evaluated against truncated data: %#v", index, result)
+		}
+	}
+
+	updates := successfulVariableUpdates(rules, results)
+	if len(updates) != 2 || updates[0] != (headerEntry{key: "statusCode", value: "200"}) || updates[1] != (headerEntry{key: "kind", value: "large"}) {
+		t.Fatalf("metadata extraction updates = %#v", updates)
+	}
+}
+
 func TestDoRequestEvaluatesAndDisplaysAssertions(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

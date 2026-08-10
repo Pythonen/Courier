@@ -15,7 +15,10 @@ import (
 	uuid "github.com/google/uuid"
 )
 
-const maxResponseBody = 10 << 20 // 10 MiB
+const (
+	maxResponseBody          = 10 << 20 // 10 MiB
+	maxAssertionResponseBody = 64 << 20 // 64 MiB
+)
 
 type responseMsg struct {
 	requestID            uuid.UUID
@@ -177,7 +180,7 @@ func (m model) DoRequest() tea.Cmd {
 		}
 		defer resp.Body.Close() //nolint:errcheck
 
-		body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody+1))
+		body, responseSize, bodyTruncated, err := readResponseBodyForAssertions(resp.Body, maxAssertionResponseBody)
 		if err != nil {
 			assertionResults := evaluateAssertions(assertions, assertionResponse{status: resp.StatusCode, headers: resp.Header, duration: elapsed})
 			return responseMsg{
@@ -191,38 +194,50 @@ func (m model) DoRequest() tea.Cmd {
 				variableUpdates:  successfulVariableUpdates(assertions, assertionResults),
 			}
 		}
-		if len(body) > maxResponseBody {
-			assertionResults := evaluateAssertions(assertions, assertionResponse{status: resp.StatusCode, headers: resp.Header, body: body, duration: elapsed, size: len(body)})
+		if responseSize > maxResponseBody {
+			assertionResults := evaluateAssertions(assertions, assertionResponse{status: resp.StatusCode, headers: resp.Header, body: body, bodyTruncated: bodyTruncated, duration: elapsed, size: responseSize})
 			return responseMsg{
 				requestID:        requestID,
 				responseBody:     fmt.Sprintf("Response body exceeds the %s display limit.", formatByteCount(maxResponseBody)),
 				responseHeaders:  formatHeaders(resp.Header),
-				responseMeta:     responseMeta(resp, elapsed, len(body), parsedURL.String(), unixTarget),
+				responseMeta:     responseMeta(resp, elapsed, responseSize, parsedURL.String(), unixTarget),
 				statusCode:       resp.StatusCode,
 				duration:         elapsed,
-				responseBytes:    len(body),
+				responseBytes:    responseSize,
 				finalURL:         responseFinalURL(resp, unixTarget),
 				assertionResults: assertionResults,
 				variableUpdates:  successfulVariableUpdates(assertions, assertionResults),
 			}
 		}
 
-		assertionResults := evaluateAssertions(assertions, assertionResponse{status: resp.StatusCode, headers: resp.Header, body: body, duration: elapsed, size: len(body)})
+		assertionResults := evaluateAssertions(assertions, assertionResponse{status: resp.StatusCode, headers: resp.Header, body: body, duration: elapsed, size: responseSize})
 		return responseMsg{
 			requestID:            requestID,
 			responseBody:         formatResponseBody(body, resp.Header.Get("Content-Type")),
 			responseRaw:          string(body),
 			responseRawAvailable: true,
 			responseHeaders:      formatHeaders(resp.Header),
-			responseMeta:         responseMeta(resp, elapsed, len(body), parsedURL.String(), unixTarget),
+			responseMeta:         responseMeta(resp, elapsed, responseSize, parsedURL.String(), unixTarget),
 			statusCode:           resp.StatusCode,
 			duration:             elapsed,
-			responseBytes:        len(body),
+			responseBytes:        responseSize,
 			finalURL:             responseFinalURL(resp, unixTarget),
 			assertionResults:     assertionResults,
 			variableUpdates:      successfulVariableUpdates(assertions, assertionResults),
 		}
 	}
+}
+
+func readResponseBodyForAssertions(reader io.Reader, assertionLimit int64) (body []byte, size int, truncated bool, err error) {
+	body, err = io.ReadAll(io.LimitReader(reader, assertionLimit+1))
+	size = len(body)
+	if err != nil || int64(len(body)) <= assertionLimit {
+		return body, size, false, err
+	}
+
+	body = body[:assertionLimit]
+	remaining, err := io.Copy(io.Discard, reader)
+	return body, size + int(remaining), true, err
 }
 
 func cloneRequestForDigestRetry(request *http.Request, retryContext context.Context, authorization string) (*http.Request, error) {

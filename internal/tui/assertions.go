@@ -19,11 +19,12 @@ type AssertionResult struct {
 }
 
 type assertionResponse struct {
-	status   int
-	headers  http.Header
-	body     []byte
-	duration time.Duration
-	size     int
+	status        int
+	headers       http.Header
+	body          []byte
+	bodyTruncated bool
+	duration      time.Duration
+	size          int
 }
 
 func newTestsTable() headersTable {
@@ -83,9 +84,15 @@ func evaluateAssertion(expression, expected string, response assertionResponse) 
 		}
 		return actual, actual == expected, ""
 	case expression == "body.contains":
+		if err := responseBodyAssertionError(response); err != nil {
+			return "", false, err.Error()
+		}
 		actual = truncateAssertionValue(string(response.body))
 		return actual, strings.Contains(string(response.body), expected), ""
 	case expression == "body.matches":
+		if err := responseBodyAssertionError(response); err != nil {
+			return "", false, err.Error()
+		}
 		pattern, err := regexp.Compile(expected)
 		if err != nil {
 			return "", false, "invalid regular expression: " + err.Error()
@@ -93,6 +100,9 @@ func evaluateAssertion(expression, expected string, response assertionResponse) 
 		actual = truncateAssertionValue(string(response.body))
 		return actual, pattern.Match(response.body), ""
 	case strings.HasPrefix(expression, "json."):
+		if err := responseBodyAssertionError(response); err != nil {
+			return "", false, err.Error()
+		}
 		path := strings.TrimPrefix(expression, "json.")
 		value, err := jsonPathValue(response.body, path)
 		if err != nil {
@@ -123,6 +133,9 @@ func extractResponseValue(source string, response assertionResponse) (string, er
 	source = strings.TrimSpace(source)
 	switch {
 	case source == "body":
+		if err := responseBodyAssertionError(response); err != nil {
+			return "", err
+		}
 		return string(response.body), nil
 	case source == "status":
 		return strconv.Itoa(response.status), nil
@@ -137,12 +150,18 @@ func extractResponseValue(source string, response assertionResponse) (string, er
 		}
 		return value, nil
 	case strings.HasPrefix(source, "json."):
+		if err := responseBodyAssertionError(response); err != nil {
+			return "", err
+		}
 		value, err := jsonPathValue(response.body, strings.TrimPrefix(source, "json."))
 		if err != nil {
 			return "", err
 		}
 		return stringifyAssertionValue(value), nil
 	case strings.HasPrefix(source, "body.matches:"):
+		if err := responseBodyAssertionError(response); err != nil {
+			return "", err
+		}
 		pattern := strings.TrimSpace(strings.TrimPrefix(source, "body.matches:"))
 		expression, err := regexp.Compile(pattern)
 		if err != nil {
@@ -159,6 +178,13 @@ func extractResponseValue(source string, response assertionResponse) (string, er
 	default:
 		return "", fmt.Errorf("unknown extraction source; use json.path, header.Name, body, body.matches:regex, or status")
 	}
+}
+
+func responseBodyAssertionError(response assertionResponse) error {
+	if !response.bodyTruncated {
+		return nil
+	}
+	return fmt.Errorf("response body exceeds the %s assertion limit", formatByteCount(maxAssertionResponseBody))
 }
 
 func successfulVariableUpdates(assertions []headerEntry, results []AssertionResult) []headerEntry {
