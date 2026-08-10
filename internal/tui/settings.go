@@ -4,7 +4,9 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -277,8 +279,11 @@ func configuredClient(base *http.Client, settings requestSettings) (*http.Client
 	}
 	client := *base
 	client.Timeout = settings.timeout
+	baseRedirectPolicy := client.CheckRedirect
 	if !settings.followRedirects {
 		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	} else {
+		client.CheckRedirect = secureRedirectPolicy(baseRedirectPolicy)
 	}
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
@@ -368,4 +373,62 @@ func configuredClient(base *http.Client, settings requestSettings) (*http.Client
 	}
 	client.Transport = transport
 	return &client, nil
+}
+
+func secureRedirectPolicy(basePolicy func(*http.Request, []*http.Request) error) func(*http.Request, []*http.Request) error {
+	return func(request *http.Request, via []*http.Request) error {
+		if len(via) == 0 {
+			return nil
+		}
+		previous := via[len(via)-1]
+		if strings.EqualFold(previous.URL.Scheme, "https") && !strings.EqualFold(request.URL.Scheme, "https") {
+			return fmt.Errorf("refusing insecure redirect from %s to %s", redirectOrigin(previous.URL), redirectOrigin(request.URL))
+		}
+		if redirectOrigin(previous.URL) != redirectOrigin(request.URL) {
+			stripCrossOriginRedirectHeaders(request.Header)
+		}
+		if basePolicy != nil {
+			return basePolicy(request, via)
+		}
+		if len(via) >= 10 {
+			return fmt.Errorf("stopped after 10 redirects")
+		}
+		return nil
+	}
+}
+
+func redirectOrigin(value *url.URL) string {
+	if value == nil {
+		return ""
+	}
+	scheme := strings.ToLower(value.Scheme)
+	port := value.Port()
+	if port == "" {
+		switch scheme {
+		case "http":
+			port = "80"
+		case "https":
+			port = "443"
+		}
+	}
+	return scheme + "://" + net.JoinHostPort(strings.ToLower(value.Hostname()), port)
+}
+
+func stripCrossOriginRedirectHeaders(headers http.Header) {
+	// Cross-origin redirects receive only ordinary content-negotiation headers.
+	// This protects arbitrary user-named API-key headers as well as conventional
+	// Authorization and Cookie fields.
+	allowed := map[string]bool{
+		"Accept":          true,
+		"Accept-Encoding": true,
+		"Accept-Language": true,
+		"Cache-Control":   true,
+		"Content-Type":    true,
+		"User-Agent":      true,
+	}
+	for name := range headers {
+		if !allowed[http.CanonicalHeaderKey(name)] {
+			headers.Del(name)
+		}
+	}
 }

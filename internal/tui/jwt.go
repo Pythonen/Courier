@@ -28,8 +28,15 @@ func generateJWT(config authConfig) (string, error) {
 	}
 	header := map[string]any{"typ": "JWT"}
 	if value := strings.TrimSpace(config.jwtHeaders); value != "" {
-		if err := json.Unmarshal([]byte(value), &header); err != nil {
+		var customHeaders map[string]any
+		if err := json.Unmarshal([]byte(value), &customHeaders); err != nil {
 			return "", fmt.Errorf("decode JWT headers: %w", err)
+		}
+		if customHeaders == nil {
+			return "", fmt.Errorf("decode JWT headers: expected a JSON object")
+		}
+		for name, customValue := range customHeaders {
+			header[name] = customValue
 		}
 	}
 	header["alg"] = algorithm
@@ -40,6 +47,9 @@ func generateJWT(config authConfig) (string, error) {
 	var claims map[string]any
 	if err := json.Unmarshal(payload, &claims); err != nil {
 		return "", fmt.Errorf("decode JWT payload: %w", err)
+	}
+	if claims == nil {
+		return "", fmt.Errorf("decode JWT payload: expected a JSON object")
 	}
 	headerJSON, err := json.Marshal(header)
 	if err != nil {
