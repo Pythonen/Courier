@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -899,7 +900,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cancelRequest != nil {
 				m.cancelRequest()
 			}
-			if err := m.SaveWorkspace(); err != nil {
+			if err := m.SaveWorkspace(); err != nil && !errors.Is(err, ErrWorkspaceConflict) {
 				m.responseMeta = "Workspace save failed"
 				m.responseModel.SetContent(err.Error())
 				return m, nil

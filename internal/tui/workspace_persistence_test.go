@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestWorkspaceRejectsStaleLoadedSnapshot(t *testing.T) {
@@ -67,6 +69,70 @@ func TestWorkspaceRejectsStaleLoadedSnapshot(t *testing.T) {
 	stale.variablesInput.SetEntries([]headerEntry{{key: "source", value: "reloaded"}})
 	if err := stale.SaveWorkspace(); err != nil {
 		t.Fatalf("save after reload: %v", err)
+	}
+}
+
+func TestStaleWorkspaceCanQuitWithoutOverwritingNewerSnapshot(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "workspace.json")
+	writer := NewModel()
+	if err := writer.LoadWorkspace(path); err != nil {
+		t.Fatal(err)
+	}
+	stale := NewModel()
+	if err := stale.LoadWorkspace(path); err != nil {
+		t.Fatal(err)
+	}
+
+	writer.variablesInput.SetEntries([]headerEntry{{key: "writer", value: "newer"}})
+	if err := writer.SaveWorkspace(); err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale.variablesInput.SetEntries([]headerEntry{{key: "writer", value: "stale"}})
+
+	ctrlC := tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
+	updated, _ := stale.Update(ctrlC)
+	stale = updated.(model)
+	updated, command := stale.Update(ctrlC)
+	stale = updated.(model)
+	if command == nil {
+		t.Fatal("confirmed stale-workspace quit returned no command")
+	}
+	message := command()
+	if _, ok := message.(tea.QuitMsg); !ok {
+		t.Fatalf("confirmed stale-workspace quit returned %T, want tea.QuitMsg", message)
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatal("stale quit overwrote the newer workspace snapshot")
+	}
+}
+
+func TestQuitStillBlocksOnNonConflictWorkspaceSaveFailure(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), "regular-file")
+	if err := os.WriteFile(parent, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := NewModel()
+	m.workspacePath = filepath.Join(parent, "workspace.json")
+
+	ctrlC := tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
+	updated, _ := m.Update(ctrlC)
+	m = updated.(model)
+	updated, command := m.Update(ctrlC)
+	m = updated.(model)
+	if command != nil {
+		t.Fatal("non-conflict workspace save failure allowed quit")
+	}
+	if m.responseMeta != "Workspace save failed" || m.responseModel.GetContent() == "" {
+		t.Fatalf("save failure state = meta %q response %q", m.responseMeta, m.responseModel.GetContent())
 	}
 }
 
