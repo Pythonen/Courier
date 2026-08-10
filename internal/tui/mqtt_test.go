@@ -4,12 +4,16 @@ import (
 	"bufio"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"strings"
 	"testing"
 	"time"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/google/uuid"
 )
 
 func TestMQTTConfigMapsRequestControls(t *testing.T) {
@@ -88,6 +92,28 @@ func TestMQTTRejectsUnsupportedAuthAndControls(t *testing.T) {
 	m.authInput.SetConfig(authConfig{typeID: authBearer, bearerToken: "token"})
 	if _, err := m.mqttConfig(newVariableResolver(nil)); err == nil || !strings.Contains(err.Error(), "Basic Auth") {
 		t.Fatalf("unsupported auth error = %v", err)
+	}
+}
+
+func TestWaitMQTTEventStopsWhenSessionIsCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	session := &mqttSession{
+		requestID: uuid.New(),
+		events:    make(chan mqttEventMsg),
+		context:   ctx,
+	}
+	result := make(chan tea.Msg, 1)
+	go func() { result <- waitMQTTEvent(session)() }()
+	cancel()
+
+	select {
+	case message := <-result:
+		event, ok := message.(mqttEventMsg)
+		if !ok || !errors.Is(event.err, context.Canceled) || event.session != session {
+			t.Fatalf("cancelled wait result = %#v", message)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("MQTT event wait remained blocked after session cancellation")
 	}
 }
 

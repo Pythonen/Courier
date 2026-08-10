@@ -507,13 +507,17 @@ func (transport *mqttV5Transport) disconnect() {
 
 func waitMQTTEvent(session *mqttSession) tea.Cmd {
 	return func() tea.Msg {
-		event, ok := <-session.events
-		if !ok {
-			return nil
+		select {
+		case event, ok := <-session.events:
+			if !ok {
+				return nil
+			}
+			event.events = session.events
+			event.session = session
+			return event
+		case <-session.context.Done():
+			return mqttEventMsg{requestID: session.requestID, err: session.context.Err(), session: session}
 		}
-		event.events = session.events
-		event.session = session
-		return event
 	}
 }
 
