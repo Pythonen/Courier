@@ -136,6 +136,20 @@ func TestCurlCommandRoundTrip(t *testing.T) {
 	}
 }
 
+func TestCurlCommandPlacesQueryBeforeURLFragment(t *testing.T) {
+	request := savedRequest{
+		method: "GET",
+		url:    "https://api.example.test/items?fixed=yes#details",
+		params: []headerEntry{{key: "page", value: "2"}},
+		auth:   authConfig{typeID: authAPIKey, apiKeyName: "api_key", apiKeyValue: "secret", apiKeyLocation: apiKeyQuery},
+	}
+
+	command := CurlCommand(request)
+	if !strings.Contains(command, "--url 'https://api.example.test/items?fixed=yes&page=2&api_key=secret#details'") {
+		t.Fatalf("cURL query parameters were placed after the fragment: %s", command)
+	}
+}
+
 func TestParseCurlCommandRejectsUnsafeOrIncompleteInput(t *testing.T) {
 	for _, command := range []string{"", "curl --request", "curl https://example.test ';' echo nope", "curl -X 'BAD METHOD' https://example.test"} {
 		if _, err := ParseCurlCommand(command); err == nil {

@@ -472,6 +472,11 @@ func CurlCommand(request savedRequest) string {
 func requestCommandURL(request savedRequest) string {
 	urlValue := request.url
 	if len(request.params) > 0 || (request.auth.typeID == authAPIKey && request.auth.apiKeyLocation == apiKeyQuery) || (request.auth.typeID == authJWTBearer && request.auth.jwtLocation == apiKeyQuery) || (request.auth.typeID == authOAuth1 && request.auth.oauth1Location == apiKeyQuery && !oauth1UsesFormBody(request)) {
+		fragment := ""
+		if fragmentStart := strings.IndexByte(urlValue, '#'); fragmentStart >= 0 {
+			fragment = urlValue[fragmentStart:]
+			urlValue = urlValue[:fragmentStart]
+		}
 		separator := "?"
 		if strings.Contains(urlValue, "?") {
 			separator = "&"
@@ -493,7 +498,7 @@ func requestCommandURL(request savedRequest) string {
 		if request.auth.typeID == authOAuth1 && request.auth.oauth1Location == apiKeyQuery && !oauth1UsesFormBody(request) {
 			query = append(query, "{{oauth1_parameters}}")
 		}
-		urlValue += separator + strings.Join(query, "&")
+		urlValue += separator + strings.Join(query, "&") + fragment
 	}
 	return urlValue
 }
