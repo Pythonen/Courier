@@ -228,7 +228,7 @@ func (s *settingsPane) Blur() {
 	s.syncConfig()
 }
 
-func (s settingsPane) View() string {
+func (s settingsPane) View(heights ...int) string {
 	boolValue := func(value bool) string {
 		if value {
 			return activeCellStyle.Render("On")
@@ -270,7 +270,11 @@ func (s settingsPane) View() string {
 	header := headerStyle.Render(pageName) + hintStyle.Render("  p:page")
 	rows = append([]string{header}, rows...)
 	rows = append(rows, hintStyle.Render(" jk:move  space:toggle  hl:adjust  i:edit  ctrl+t:close"))
-	return strings.Join(rows, "\n")
+	height := len(rows)
+	if len(heights) > 0 {
+		height = heights[0]
+	}
+	return renderCursorViewport(rows, s.cursor+1, height)
 }
 
 func configuredClient(base *http.Client, settings requestSettings) (*http.Client, error) {
