@@ -379,12 +379,14 @@ func workspaceHTTPVersion(version httpVersion) string {
 	}
 }
 
-func (m *model) saveWorkspaceWithStatus() {
+func (m *model) saveWorkspaceWithStatus() bool {
 	if err := m.SaveWorkspace(); err != nil {
 		m.responseMeta = "Workspace save failed"
 		m.responseModel.SetContent(err.Error())
 		m.response = err.Error()
+		return false
 	}
+	return true
 }
 
 func (m *model) captureCurrentRequest() savedRequest {
@@ -463,6 +465,7 @@ func (m *model) applySavedRequest(request savedRequest) {
 	m.responseTestsModel.SetContent("")
 	m.assertionResults = nil
 	m.setMethodForURL(request.method, request.url)
+	m.markRequestDraftClean()
 }
 
 func toWorkspaceEntries(entries []headerEntry) []workspaceEntry {

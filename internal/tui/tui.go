@@ -225,6 +225,10 @@ type model struct {
 	quitConfirmOpen       bool
 	quitConfirmID         uuid.UUID
 
+	requestDraftBaseline   savedRequest
+	requestLoadConfirmOpen bool
+	pendingRequestLoad     requestLoadTarget
+
 	focus     pane
 	inputMode inputMode
 	keymap    keymap
@@ -390,6 +394,7 @@ func NewModel() model {
 			),
 		},
 	}
+	m.markRequestDraftClean()
 	return m
 }
 
@@ -434,8 +439,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.authInput.SetConfig(config)
 		if m.activeSavedIndex >= 0 && m.activeSavedIndex < len(m.savedRequests) {
+			previousAuth := m.savedRequests[m.activeSavedIndex].auth
 			m.savedRequests[m.activeSavedIndex].auth = config
-			m.saveWorkspaceWithStatus()
+			if !m.saveWorkspaceWithStatus() {
+				m.savedRequests[m.activeSavedIndex].auth = previousAuth
+				break
+			}
+			m.markRequestDraftClean()
 		}
 		m.responseMeta = "OAuth 2 authorization complete"
 
@@ -880,6 +890,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
+		case m.requestLoadConfirmOpen:
+			switch msg.String() {
+			case "enter", "y":
+				m.confirmPendingRequestLoad()
+			case "esc", "n":
+				m.cancelPendingRequestLoad()
+			}
+			return m, nil
+
 		case m.methodEditOpen:
 			switch msg.String() {
 			case "esc":
@@ -954,7 +973,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				} else if name != "" && m.collectionPos >= 0 && m.collectionPos < len(m.savedRequests) {
 					m.savedRequests[m.collectionPos].name = name
-					m.activeSavedIndex = m.collectionPos
 					m.responseMeta = "Renamed saved request"
 					m.saveWorkspaceWithStatus()
 				}
@@ -1082,7 +1100,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keymap.save):
 			if m.urlInput.Value() != "" {
 				request := m.captureCurrentRequest()
+				previousActiveIndex := m.activeSavedIndex
+				previousCollectionPos := m.collectionPos
+				previousRequestCount := len(m.savedRequests)
+				updatedIndex := -1
+				var previousRequest savedRequest
 				if m.activeSavedIndex >= 0 && m.activeSavedIndex < len(m.savedRequests) {
+					updatedIndex = m.activeSavedIndex
+					previousRequest = m.savedRequests[updatedIndex]
 					request.name = m.savedRequests[m.activeSavedIndex].name
 					request.examples = m.savedRequests[m.activeSavedIndex].examples
 					m.savedRequests[m.activeSavedIndex] = request
@@ -1095,7 +1120,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.responseMeta = "Saved request locally"
 				}
 				m.sidebarMode = sidebarCollections
-				m.saveWorkspaceWithStatus()
+				if m.saveWorkspaceWithStatus() {
+					m.markRequestDraftClean()
+				} else if updatedIndex >= 0 {
+					m.savedRequests[updatedIndex] = previousRequest
+					m.activeSavedIndex = previousActiveIndex
+					m.collectionPos = previousCollectionPos
+				} else {
+					m.savedRequests = m.savedRequests[:previousRequestCount]
+					m.activeSavedIndex = previousActiveIndex
+					m.collectionPos = previousCollectionPos
+				}
 			}
 
 		case key.Matches(msg, m.keymap.saveExample):
@@ -1471,7 +1506,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sizeComponents()
 
 	case tea.MouseReleaseMsg:
-		if m.quitConfirmOpen {
+		if m.quitConfirmOpen || m.requestLoadConfirmOpen {
 			return m, nil
 		}
 		if msg.Button != tea.MouseLeft {
@@ -1790,11 +1825,41 @@ func (m model) View() tea.View {
 	}))
 
 	content := zone.Scan(layout + "\n" + helpView)
+	if m.requestLoadConfirmOpen {
+		content = m.viewRequestLoadConfirmation(content)
+	}
 	if m.quitConfirmOpen {
 		content = m.viewQuitConfirmation(content)
 	}
 	v.SetContent(content)
 	return v
+}
+
+func (m model) viewRequestLoadConfirmation(content string) string {
+	viewportWidth := max(1, m.width)
+	viewportHeight := max(1, m.height)
+	modal := requestLoadConfirmationModal(viewportWidth)
+	modalWidth, modalHeight := lipgloss.Size(modal)
+	x := max(0, (viewportWidth-modalWidth)/2)
+	y := max(0, (viewportHeight-modalHeight)/2)
+
+	return lipgloss.NewCompositor(
+		lipgloss.NewLayer(content),
+		lipgloss.NewLayer(modal).X(x).Y(y).Z(1),
+	).Render()
+}
+
+func requestLoadConfirmationModal(viewportWidth int) string {
+	modalInnerWidth := min(50, max(10, viewportWidth-6))
+	rowWidth := modalInnerWidth + 4
+	row := func(style lipgloss.Style, content string) string {
+		return style.Width(rowWidth).Align(lipgloss.Center).Render(content)
+	}
+	message := row(quitModalTitleStyle, "Discard unsaved request changes?") + "\n" +
+		row(quitModalBodyStyle, " ") + "\n" +
+		row(quitModalBodyStyle, "Load the selected item and replace the current draft?") + "\n" +
+		row(quitModalHintStyle, "Enter/y to discard • Esc/n to keep editing")
+	return quitModalStyle.Render(message)
 }
 
 func (m model) viewQuitConfirmation(content string) string {

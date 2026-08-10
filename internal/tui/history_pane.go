@@ -70,8 +70,7 @@ func (m *model) handleHistoryKeys(keyStr string) {
 		case "enter":
 			m.examplePendingD = false
 			if len(refs) > 0 {
-				m.applySavedExample(refs[m.examplePos])
-				m.setFocus(paneResponse)
+				m.loadRequestOrConfirm(requestLoadTarget{kind: requestLoadExample, example: refs[m.examplePos]})
 			}
 			return
 		case "d":
@@ -102,9 +101,6 @@ func (m *model) handleHistoryKeys(keyStr string) {
 		default:
 			m.examplePendingD = false
 		}
-		if len(refs) > 0 {
-			m.applySavedExample(refs[m.examplePos])
-		}
 		return
 	}
 
@@ -124,9 +120,7 @@ func (m *model) handleHistoryKeys(keyStr string) {
 		case "enter":
 			m.collectionPendingD = false
 			if len(m.savedRequests) > 0 {
-				m.applySavedRequest(m.savedRequests[m.collectionPos])
-				m.activeSavedIndex = m.collectionPos
-				m.setFocus(paneURL)
+				m.loadRequestOrConfirm(requestLoadTarget{kind: requestLoadCollection, index: m.collectionPos})
 			}
 			return
 		case "d":
@@ -176,10 +170,6 @@ func (m *model) handleHistoryKeys(keyStr string) {
 		default:
 			m.collectionPendingD = false
 		}
-		if len(m.savedRequests) > 0 {
-			m.applySavedRequest(m.savedRequests[m.collectionPos])
-			m.activeSavedIndex = m.collectionPos
-		}
 		return
 	}
 
@@ -210,15 +200,11 @@ func (m *model) handleHistoryKeys(keyStr string) {
 	case "enter":
 		m.historyPendingD = false
 		if len(m.history) > 0 {
-			m.applyHistoryItem(m.history[m.historyPos])
-			m.setFocus(paneURL)
+			m.loadRequestOrConfirm(requestLoadTarget{kind: requestLoadHistory, index: m.historyPos})
 		}
 		return
 	default:
 		m.historyPendingD = false
-	}
-	if len(m.history) > 0 {
-		m.applyHistoryItem(m.history[m.historyPos])
 	}
 }
 
@@ -244,6 +230,7 @@ func (m *model) applyHistoryItem(item historyItem) {
 	m.responseHeadersModel.SetContent(m.responseHeaders)
 	m.responseTestsModel.SetContent(m.responseTests)
 	m.setMethodForURL(item.method, item.url)
+	m.markRequestDraftClean()
 }
 
 func (m model) viewHistory(contentHeight int) string {

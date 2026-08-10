@@ -739,6 +739,10 @@ func TestHistoryRestoresHeadersAndScrollsSelection(t *testing.T) {
 	}
 	m.historyPos = 3
 	m.handleHistoryKeys("down")
+	if m.urlInput.Value() != "" {
+		t.Fatalf("history navigation replaced the draft URL with %q", m.urlInput.Value())
+	}
+	m.handleHistoryKeys("enter")
 
 	if m.urlInput.Value() != "item-e" {
 		t.Fatalf("restored URL = %q", m.urlInput.Value())

@@ -8,7 +8,13 @@ import (
 
 // viewURL renders the URL bar: [METHOD] [url input field]
 func (m model) viewURL(mainWidth int) string {
-	methodText := ansi.Truncate(m.displayedMethod(), methodWidth-2, "…")
+	methodTextWidth := methodWidth - 2
+	dirtyMarker := ""
+	if m.requestDraftDirty() {
+		methodTextWidth--
+		dirtyMarker = "*"
+	}
+	methodText := ansi.Truncate(m.displayedMethod(), methodTextWidth, "…") + dirtyMarker
 	if m.methodEditOpen {
 		methodText = m.methodInput.View()
 	}
