@@ -79,7 +79,7 @@ func (m model) viewRequest(mainWidth, height int) string {
 	case requestTabParams:
 		content = m.paramsInput.View()
 	case requestTabAuth:
-		content = m.authInput.View()
+		content = m.authInput.View(max(1, innerHeight-1))
 	case requestTabBody:
 		content = m.viewBody()
 	case requestTabCookies:
@@ -89,7 +89,7 @@ func (m model) viewRequest(mainWidth, height int) string {
 	}
 	if m.settingsOpen {
 		tabBar = activeTabStyle.Render("Settings") + hintStyle.Render("  Request transport")
-		content = m.settings.View()
+		content = m.settings.View(max(1, innerHeight-1))
 	} else if m.environmentOpen {
 		tabBar = activeTabStyle.Render("Environment: "+m.activeEnvironmentName()) + hintStyle.Render("  p:next n:new r:rename dd:delete")
 		if m.environmentNameOpen {
@@ -142,4 +142,31 @@ func (m model) viewRequest(mainWidth, height int) string {
 	}
 
 	return box
+}
+
+// renderCursorViewport clips a form to the available rows while keeping its
+// active control visible. One row below the cursor is retained when possible
+// so the form's next control or keyboard hint remains discoverable.
+func renderCursorViewport(lines []string, activeLine, height int) string {
+	if len(lines) == 0 || height <= 0 {
+		return ""
+	}
+	if height >= len(lines) {
+		return strings.Join(lines, "\n")
+	}
+
+	activeLine = min(max(activeLine, 0), len(lines)-1)
+	cursorRow := max(0, height-2)
+	offset := max(0, activeLine-cursorRow)
+	offset = min(offset, len(lines)-height)
+
+	visible := append([]string(nil), lines[offset:offset+height]...)
+	if offset > 0 {
+		visible[0] = hintStyle.Render("↑ ") + visible[0]
+	}
+	if offset+height < len(lines) {
+		last := len(visible) - 1
+		visible[last] += hintStyle.Render("  ↓")
+	}
+	return strings.Join(visible, "\n")
 }

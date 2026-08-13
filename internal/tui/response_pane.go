@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 
+	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -80,19 +81,28 @@ func (m model) viewResponse(mainWidth, height int) string {
 		testsTab = activeTabStyle.Render("Tests")
 	}
 	tabBar := bodyTab + " " + headersTab + " " + testsTab
+	workspaceStatus := singleLineTerminalText(m.workspaceSaveStatus)
+	promptOpen := true
 	if m.responseSearchOpen {
-		tabBar += "  " + headerStyle.Render("Find: ") + m.responseSearchInput.View()
+		tabBar = renderResponsePrompt(tabBar, "Find: ", m.responseSearchInput, innerWidth, workspaceStatus)
 	} else if m.responseFilterOpen {
-		tabBar += "  " + headerStyle.Render("Filter: ") + m.responseFilterInput.View()
+		tabBar = renderResponsePrompt(tabBar, "Filter: ", m.responseFilterInput, innerWidth, workspaceStatus)
 	} else if m.responseSaveOpen {
-		tabBar += "  " + headerStyle.Render("Save: ") + m.responseSaveInput.View()
-	} else if m.responseMeta != "" || m.responseSearchStatus != "" || m.responseFilterStatus != "" {
-		status := m.responseMeta
+		tabBar = renderResponsePrompt(tabBar, "Save: ", m.responseSaveInput, innerWidth, workspaceStatus)
+	} else {
+		promptOpen = false
+	}
+	status := workspaceStatus
+	if status == "" && !promptOpen {
+		status = m.responseMeta
 		if m.responseSearchStatus != "" {
 			status = m.responseSearchStatus
 		} else if m.responseFilterStatus != "" {
 			status = m.responseFilterStatus
 		}
+	}
+	if status != "" {
+		status = singleLineTerminalText(status)
 		available := innerWidth - lipgloss.Width(tabBar) - 2
 		if available > 0 {
 			tabBar += "  " + hintStyle.Render(ansi.Truncate(status, available, "…"))
@@ -123,6 +133,27 @@ func (m model) viewResponse(mainWidth, height int) string {
 		Render(tabBar + "\n" + content)
 
 	return zone.Mark("response", border.Render(canvas))
+}
+
+func renderResponsePrompt(tabBar, label string, input textinput.Model, innerWidth int, workspaceStatus string) string {
+	prefix := "  " + headerStyle.Render(label)
+	if workspaceStatus != "" {
+		remaining := innerWidth - lipgloss.Width(tabBar) - lipgloss.Width(prefix) - 2
+		if remaining <= 1 {
+			return tabBar
+		}
+		statusWidth := min(lipgloss.Width(workspaceStatus), max(lipgloss.Width("Workspace save failed"), remaining/2), remaining-1)
+		inputWidth := max(1, remaining-statusWidth)
+		if input.Width() <= 0 || input.Width() > inputWidth {
+			input.SetWidth(inputWidth)
+			input.SetCursor(input.Position())
+		}
+	}
+	return tabBar + prefix + input.View()
+}
+
+func singleLineTerminalText(value string) string {
+	return strings.ReplaceAll(sanitizeTerminalText(value), "\n", `\n`)
 }
 
 func innerPromptWidth(mainWidth int) int {

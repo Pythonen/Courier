@@ -2,8 +2,10 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -134,7 +136,7 @@ type keymap struct {
 	exportCurl, exportResponse key.Binding
 	collections, settings      key.Binding
 	environment, cycleMethod   key.Binding
-	editMethod, quit           key.Binding
+	editMethod, showHelp, quit key.Binding
 }
 
 type model struct {
@@ -165,6 +167,7 @@ type model struct {
 	responseHeadersModel  viewport.Model
 	responseHeaders       string
 	responseMeta          string
+	workspaceSaveStatus   string
 	responseTests         string
 	responseTab           responseTab
 	requestTab            requestTab
@@ -173,6 +176,7 @@ type model struct {
 	historyPendingD       bool
 	cookiePos             int
 	cookiePendingD        bool
+	cookieSecretsVisible  bool
 	responseModel         viewport.Model
 	response              string
 	responseRaw           string
@@ -224,6 +228,12 @@ type model struct {
 	sidebarMode           sidebarMode
 	quitConfirmOpen       bool
 	quitConfirmID         uuid.UUID
+	helpOverlayOpen       bool
+	helpOverlayOffset     int
+
+	requestDraftBaseline   savedRequest
+	requestLoadConfirmOpen bool
+	pendingRequestLoad     requestLoadTarget
 
 	focus     pane
 	inputMode inputMode
@@ -326,7 +336,7 @@ func NewModel() model {
 		keymap: keymap{
 			next: key.NewBinding(
 				key.WithKeys("tab"),
-				key.WithHelp("tab", "next pane"),
+				key.WithHelp("tab/shift+tab", "cycle pane"),
 			),
 			prev: key.NewBinding(
 				key.WithKeys("shift+tab"),
@@ -384,12 +394,17 @@ func NewModel() model {
 				key.WithKeys("O"),
 				key.WithHelp("O", "edit method"),
 			),
+			showHelp: key.NewBinding(
+				key.WithKeys("?", "f1"),
+				key.WithHelp("?/f1", "all keys"),
+			),
 			quit: key.NewBinding(
 				key.WithKeys("ctrl+c"),
 				key.WithHelp("ctrl+c", "quit"),
 			),
 		},
 	}
+	m.markRequestDraftClean()
 	return m
 }
 
@@ -399,6 +414,11 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
+	if m.helpOverlayOpen {
+		if _, isMouse := msg.(tea.MouseMsg); isMouse {
+			return m, nil
+		}
+	}
 
 	switch msg := msg.(type) {
 	case quitConfirmationExpiredMsg:
@@ -434,8 +454,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.authInput.SetConfig(config)
 		if m.activeSavedIndex >= 0 && m.activeSavedIndex < len(m.savedRequests) {
+			previousAuth := m.savedRequests[m.activeSavedIndex].auth
 			m.savedRequests[m.activeSavedIndex].auth = config
-			m.saveWorkspaceWithStatus()
+			saveResult := m.saveWorkspaceWithStatus()
+			if !saveResult.succeeded() {
+				if saveResult != workspaceSaveConflictHandled {
+					m.savedRequests[m.activeSavedIndex].auth = previousAuth
+				}
+				break
+			}
+			m.requestDraftBaseline.auth = config
 		}
 		m.responseMeta = "OAuth 2 authorization complete"
 
@@ -445,7 +473,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			break
 		}
 		if msg.err != nil {
-			m.response, m.responseRaw, m.responseMeta = msg.err.Error(), "", "Socket.IO connection failed"
+			m.response, m.responseRaw, m.responseMeta = sanitizeTerminalText(msg.err.Error()), "", "Socket.IO connection failed"
 			m.responseRawAvailable = false
 			m.responseModel.SetContent(m.response)
 			m.cancelRequest, m.requestContext = nil, nil
@@ -464,8 +492,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.socketIO = msg.session
 		m.cancelRequest = func() { closeSocketIOSession(msg.session) }
-		m.responseHeaders = formatHeaders(msg.session.headers)
-		m.responseHeadersModel.SetContent(m.responseHeaders)
+		m.setResponseHeaders(formatHeaders(msg.session.headers))
 		m.responseMeta = fmt.Sprintf("Socket.IO connected • %s", msg.duration.Round(time.Millisecond))
 		m.responseStatusCode = http.StatusSwitchingProtocols
 		_ = m.appendSocketIOEntry(msg.requestID, "CONNECTED "+msg.session.url+"\n")
@@ -537,7 +564,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			break
 		}
 		if msg.err != nil {
-			m.response = msg.err.Error()
+			m.response = sanitizeTerminalText(msg.err.Error())
 			m.responseRaw = ""
 			m.responseRawAvailable = false
 			m.responseMeta = "MQTT connection failed"
@@ -560,8 +587,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.mqtt = msg.session
 		m.cancelRequest = func() { terminateMQTTSession(msg.session) }
-		m.responseHeaders = mqttConnectionSummary(msg.session.config)
-		m.responseHeadersModel.SetContent(m.responseHeaders)
+		m.setResponseHeaders(mqttConnectionSummary(msg.session.config))
 		m.responseMeta = fmt.Sprintf("MQTT %s connected • %s", msg.session.config.version, msg.duration.Round(time.Millisecond))
 		m.responseStatusCode = http.StatusOK
 		_ = m.appendMQTTEntry(msg.requestID, "CONNECTED "+msg.session.url+"\n")
@@ -648,7 +674,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			break
 		}
 		if msg.err != nil {
-			m.response = msg.err.Error()
+			m.response = sanitizeTerminalText(msg.err.Error())
 			m.responseRaw = ""
 			m.responseRawAvailable = false
 			m.responseMeta = "WebSocket connection failed"
@@ -677,8 +703,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			closeWebSocketSession(msg.session)
 		}
-		m.responseHeaders = msg.headers
-		m.responseHeadersModel.SetContent(msg.headers)
+		m.setResponseHeaders(msg.headers)
 		m.responseMeta = fmt.Sprintf("101 Switching Protocols • connected • %s", msg.duration.Round(time.Millisecond))
 		m.responseStatusCode = http.StatusSwitchingProtocols
 		_ = m.appendWebSocketEntry(msg.requestID, "CONNECTED "+msg.session.url+"\n")
@@ -758,10 +783,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.saveWorkspaceWithStatus()
 
 	case responseMsg:
+		msg.responseMeta = sanitizeTerminalText(msg.responseMeta)
+		if !msg.responseRawAvailable {
+			msg.responseBody = sanitizeTerminalText(msg.responseBody)
+		}
 		if msg.stream != nil {
 			cmds = append(cmds, waitResponseStream(msg.stream))
 		}
 		historyUpdated := false
+		workspaceUpdated := false
 		for i := range m.history {
 			if m.history[i].requestID == msg.requestID {
 				m.history[i].responseBody = msg.responseBody
@@ -780,13 +810,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(msg.variableUpdates) > 0 {
 				m.variablesInput.SetEntries(mergeHeaderEntries(m.variablesInput.Entries(), msg.variableUpdates))
 				m.syncActiveEnvironment()
+				workspaceUpdated = true
 			}
 			m.responseModel.SetContent(msg.responseBody)
 			m.response = msg.responseBody
 			m.responseRaw = msg.responseRaw
 			m.responseRawAvailable = msg.responseRawAvailable
-			m.responseHeadersModel.SetContent(msg.responseHeaders)
-			m.responseHeaders = msg.responseHeaders
+			m.setResponseHeaders(msg.responseHeaders)
 			m.responseMeta = msg.responseMeta
 			m.responseStatusCode = msg.statusCode
 			m.assertionResults = msg.assertionResults
@@ -797,11 +827,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.requestContext = nil
 			}
 			m.resetResponseSearchMatches()
-			if len(msg.variableUpdates) > 0 {
-				m.saveWorkspaceWithStatus()
-			}
 		}
 		if historyUpdated && msg.stream == nil {
+			workspaceUpdated = true
+		}
+		if workspaceUpdated {
 			m.saveWorkspaceWithStatus()
 		}
 
@@ -809,9 +839,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.final != nil {
 			return m.Update(*msg.final)
 		}
+		displayChunk := sanitizeTerminalText(msg.chunk)
 		for i := range m.history {
 			if m.history[i].requestID == msg.requestID {
-				m.history[i].responseBody += msg.chunk
+				m.history[i].responseBody += displayChunk
 				m.history[i].responseRaw += msg.chunk
 				m.history[i].responseRawAvailable = true
 				break
@@ -819,7 +850,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.requestID == m.requestId {
 			wasAtBottom := m.responseModel.AtBottom()
-			m.response += msg.chunk
+			m.response += displayChunk
 			m.responseRaw += msg.chunk
 			m.responseRawAvailable = true
 			m.responseModel.SetContent(m.response)
@@ -832,6 +863,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
+		if m.helpOverlayOpen {
+			if _, released := msg.(tea.KeyReleaseMsg); released {
+				return m, nil
+			}
+			if msg.Key().IsRepeat && (msg.String() == "?" || msg.String() == "f1" || msg.String() == "esc") {
+				return m, nil
+			}
+			m.updateHelpOverlay(msg.String())
+			return m, nil
+		}
+
 		inInsert := m.focus == paneRequest && m.inputMode == modeInsert
 
 		switch {
@@ -840,6 +882,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			if !m.quitConfirmOpen {
+				// Persist or roll back workspace-backed edits before asking for the
+				// final quit confirmation. A confirmed quit may deliberately ignore
+				// a stale-snapshot conflict so the process cannot become trapped.
+				m.saveWorkspaceWithStatus()
 				m.quitConfirmOpen = true
 				m.quitConfirmID = uuid.New()
 				id := m.quitConfirmID
@@ -861,9 +907,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cancelRequest != nil {
 				m.cancelRequest()
 			}
-			if err := m.SaveWorkspace(); err != nil {
-				m.responseMeta = "Workspace save failed"
-				m.responseModel.SetContent(err.Error())
+			if err := m.SaveWorkspace(); err != nil && !errors.Is(err, ErrWorkspaceConflict) {
+				m.workspaceSaveStatus = "Workspace save failed: " + err.Error()
 				return m, nil
 			}
 			return m, tea.Quit
@@ -872,6 +917,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.String() == "esc" {
 				m.quitConfirmOpen = false
 				m.quitConfirmID = uuid.Nil
+			}
+			return m, nil
+
+		case m.requestLoadConfirmOpen:
+			switch msg.String() {
+			case "enter", "y":
+				m.confirmPendingRequestLoad()
+			case "esc", "n":
+				m.cancelPendingRequestLoad()
+			}
+			return m, nil
+
+		case key.Matches(msg, m.keymap.showHelp) && (msg.String() == "f1" || (!inInsert && m.helpShortcutAvailable())):
+			if _, pressed := msg.(tea.KeyPressMsg); pressed && !msg.Key().IsRepeat {
+				m.helpOverlayOpen = true
+				m.helpOverlayOffset = 0
 			}
 			return m, nil
 
@@ -944,14 +1005,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if m.examplePos >= 0 && m.examplePos < len(refs) {
 						ref := refs[m.examplePos]
 						m.savedRequests[ref.requestIndex].examples[ref.exampleIndex].name = name
-						m.responseMeta = "Renamed saved example"
-						m.saveWorkspaceWithStatus()
+						if m.saveWorkspaceWithStatus().succeeded() {
+							m.responseMeta = "Renamed saved example"
+						}
 					}
 				} else if name != "" && m.collectionPos >= 0 && m.collectionPos < len(m.savedRequests) {
 					m.savedRequests[m.collectionPos].name = name
-					m.activeSavedIndex = m.collectionPos
-					m.responseMeta = "Renamed saved request"
-					m.saveWorkspaceWithStatus()
+					if m.saveWorkspaceWithStatus().succeeded() {
+						m.responseMeta = "Renamed saved request"
+					}
 				}
 			default:
 				var cmd tea.Cmd
@@ -975,20 +1037,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.responseMeta = "Environment name must be non-empty and unique"
 					break
 				}
+				previousCursorRow := m.variablesInput.cursorRow
+				previousCursorCol := m.variablesInput.cursorCol
+				successStatus := "Renamed environment to " + name
 				if m.environmentCreating {
 					m.syncActiveEnvironment()
 					m.environments = append(m.environments, environmentProfile{name: name})
 					m.environmentPos = len(m.environments) - 1
 					m.variablesInput.SetEntries(nil)
-					m.responseMeta = "Created environment " + name
+					successStatus = "Created environment " + name
 				} else {
 					m.environments[m.environmentPos].name = name
-					m.responseMeta = "Renamed environment to " + name
 				}
 				m.environmentNameOpen = false
 				m.environmentCreating = false
 				m.environmentNameInput.Blur()
-				m.saveWorkspaceWithStatus()
+				saveResult := m.saveWorkspaceWithStatus()
+				if saveResult == workspaceSaveConflictHandled {
+					m.restoreEnvironmentCursor(previousCursorRow, previousCursorCol)
+				} else if saveResult.succeeded() {
+					m.responseMeta = successStatus
+				}
 			default:
 				var cmd tea.Cmd
 				m.environmentNameInput, cmd = m.environmentNameInput.Update(msg)
@@ -1047,6 +1116,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case key.Matches(msg, m.keymap.settings):
+			wasSettingsOpen := m.settingsOpen
+			wasEnvironmentOpen := m.environmentOpen
 			m.settingsOpen = !m.settingsOpen
 			m.environmentOpen = false
 			m.environmentNameOpen = false
@@ -1056,9 +1127,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.settingsOpen {
 				m.setFocus(paneRequest)
 			}
+			if wasSettingsOpen || wasEnvironmentOpen {
+				m.saveWorkspaceWithStatus()
+			}
 
 		case key.Matches(msg, m.keymap.environment):
 			wasOpen := m.environmentOpen
+			wasSettingsOpen := m.settingsOpen
 			m.environmentOpen = !m.environmentOpen
 			m.settingsOpen = false
 			m.inputMode = modeNormal
@@ -1070,27 +1145,49 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.environmentOpen {
 				m.setFocus(paneRequest)
 				m.variablesInput.Focus()
-			} else if wasOpen {
+			}
+			if wasOpen || wasSettingsOpen {
 				m.saveWorkspaceWithStatus()
 			}
 
 		case key.Matches(msg, m.keymap.save):
 			if m.urlInput.Value() != "" {
 				request := m.captureCurrentRequest()
+				previousActiveIndex := m.activeSavedIndex
+				previousCollectionPos := m.collectionPos
+				previousRequestCount := len(m.savedRequests)
+				successStatus := "Saved request locally"
+				updatedIndex := -1
+				var previousRequest savedRequest
 				if m.activeSavedIndex >= 0 && m.activeSavedIndex < len(m.savedRequests) {
+					updatedIndex = m.activeSavedIndex
+					previousRequest = m.savedRequests[updatedIndex]
 					request.name = m.savedRequests[m.activeSavedIndex].name
 					request.examples = m.savedRequests[m.activeSavedIndex].examples
 					m.savedRequests[m.activeSavedIndex] = request
 					m.collectionPos = m.activeSavedIndex
-					m.responseMeta = "Updated saved request"
+					successStatus = "Updated saved request"
 				} else {
 					m.savedRequests = append(m.savedRequests, request)
 					m.collectionPos = len(m.savedRequests) - 1
 					m.activeSavedIndex = m.collectionPos
-					m.responseMeta = "Saved request locally"
 				}
 				m.sidebarMode = sidebarCollections
-				m.saveWorkspaceWithStatus()
+				saveResult := m.saveWorkspaceWithStatus()
+				if saveResult.succeeded() {
+					m.markRequestDraftClean()
+					m.responseMeta = successStatus
+				} else if saveResult == workspaceSaveConflictHandled {
+					m.collectionPos = clampWorkspacePosition(previousCollectionPos, len(m.savedRequests))
+				} else if updatedIndex >= 0 {
+					m.savedRequests[updatedIndex] = previousRequest
+					m.activeSavedIndex = previousActiveIndex
+					m.collectionPos = previousCollectionPos
+				} else {
+					m.savedRequests = m.savedRequests[:previousRequestCount]
+					m.activeSavedIndex = previousActiveIndex
+					m.collectionPos = previousCollectionPos
+				}
 			}
 
 		case key.Matches(msg, m.keymap.saveExample):
@@ -1106,8 +1203,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.responseRawAvailable = false
 				m.responseStatusCode = 0
 				m.responseModel.SetContent(m.response)
-				m.responseHeaders = ""
-				m.responseHeadersModel.SetContent("")
+				m.setResponseHeaders("")
 				m.responseTests = ""
 				m.responseTestsModel.SetContent("")
 				m.assertionResults = nil
@@ -1129,6 +1225,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, m.keymap.collections):
 			m.sidebarMode = (m.sidebarMode + 1) % sidebarModeCount
+			m.cookieSecretsVisible = false
 			m.setFocus(paneHistory)
 
 		case key.Matches(msg, m.keymap.cancel):
@@ -1151,6 +1248,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if msg.String() == "esc" {
 					m.inputMode = modeNormal
 					m.settings.Blur()
+					m.saveWorkspaceWithStatus()
 				} else {
 					cmds = append(cmds, m.settings.UpdateInput(msg))
 				}
@@ -1158,7 +1256,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.inputMode = modeInsert
 				cmds = append(cmds, m.settings.FocusCurrent())
 			} else {
+				previousConfig := m.settings.config
 				m.settings.UpdateNormal(msg.String())
+				if m.settings.config != previousConfig {
+					m.saveWorkspaceWithStatus()
+				}
 			}
 
 		case m.environmentOpen:
@@ -1166,6 +1268,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if msg.String() == "esc" {
 					m.inputMode = modeNormal
 					m.variablesInput.blurAll()
+					m.saveWorkspaceWithStatus()
 				} else {
 					cmds = append(cmds, m.variablesInput.UpdateInsert(msg))
 				}
@@ -1176,10 +1279,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				keyStr := msg.String()
 				switch keyStr {
 				case "p":
+					previousCursorRow := m.variablesInput.cursorRow
+					previousCursorCol := m.variablesInput.cursorCol
 					m.environmentPendingD = false
 					m.activateEnvironmentIndex((m.environmentPos + 1) % len(m.environments))
-					m.responseMeta = "Environment: " + m.activeEnvironmentName()
-					m.saveWorkspaceWithStatus()
+					successStatus := "Environment: " + m.activeEnvironmentName()
+					saveResult := m.saveWorkspaceWithStatus()
+					if saveResult == workspaceSaveConflictHandled {
+						m.restoreEnvironmentCursor(previousCursorRow, previousCursorCol)
+					} else if saveResult.succeeded() {
+						m.responseMeta = successStatus
+					}
 				case "n":
 					m.environmentPendingD = false
 					m.environmentCreating = true
@@ -1200,6 +1310,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.environmentPendingD = true
 						m.responseMeta = "Press d again to delete " + m.activeEnvironmentName()
 					} else {
+						previousCursorRow := m.variablesInput.cursorRow
+						previousCursorCol := m.variablesInput.cursorCol
 						deleted := m.activeEnvironmentName()
 						m.environments = append(m.environments[:m.environmentPos], m.environments[m.environmentPos+1:]...)
 						if m.environmentPos >= len(m.environments) {
@@ -1207,12 +1319,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 						m.variablesInput.SetEntries(m.environments[m.environmentPos].values)
 						m.environmentPendingD = false
-						m.responseMeta = "Deleted environment " + deleted
-						m.saveWorkspaceWithStatus()
+						saveResult := m.saveWorkspaceWithStatus()
+						if saveResult == workspaceSaveConflictHandled {
+							m.restoreEnvironmentCursor(previousCursorRow, previousCursorCol)
+						} else if saveResult.succeeded() {
+							m.responseMeta = "Deleted environment " + deleted
+						}
 					}
 				default:
 					m.environmentPendingD = false
+					previousCursorRow := m.variablesInput.cursorRow
+					previousCursorCol := m.variablesInput.cursorCol
+					previousEntries := m.variablesInput.Entries()
 					m.variablesInput.UpdateNormal(keyStr)
+					if !slices.Equal(previousEntries, m.variablesInput.Entries()) {
+						if m.saveWorkspaceWithStatus() == workspaceSaveConflictHandled {
+							m.restoreEnvironmentCursor(previousCursorRow, previousCursorCol)
+						}
+					}
 				}
 			}
 
@@ -1292,8 +1416,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if url != "" {
 				m.response = fmt.Sprintf("Sending request %s %s ...", method, url)
 				m.responseModel.SetContent(m.response)
-				m.responseHeaders = ""
-				m.responseHeadersModel.SetContent("")
+				m.setResponseHeaders("")
 				m.responseTests = ""
 				m.responseTestsModel.SetContent("")
 				m.assertionResults = nil
@@ -1466,7 +1589,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sizeComponents()
 
 	case tea.MouseReleaseMsg:
-		if m.quitConfirmOpen {
+		if m.quitConfirmOpen || m.requestLoadConfirmOpen {
 			return m, nil
 		}
 		if msg.Button != tea.MouseLeft {
@@ -1587,6 +1710,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) setFocus(p pane) {
+	if p != paneHistory {
+		m.cookieSecretsVisible = false
+	}
+	if p != paneRequest && m.settingsOpen {
+		m.settings.Blur()
+		m.saveWorkspaceWithStatus()
+	}
+	if p != paneRequest && m.environmentOpen {
+		m.variablesInput.Blur()
+		m.saveWorkspaceWithStatus()
+	}
 	m.focus = p
 	m.inputMode = modeNormal
 
@@ -1665,6 +1799,7 @@ func (m *model) syncRequestTabFocus() {
 
 func (m *model) sizeComponents() {
 	mainWidth, _, bodyHeight, responseHeight := layoutDimensions(m.width, m.height)
+	m.help.SetWidth(max(1, m.width-2))
 
 	m.urlInput.SetWidth(mainWidth - methodWidth - 4)
 
@@ -1712,6 +1847,7 @@ func (m *model) sizeComponents() {
 	m.responseTestsModel.SetWidth(viewportWidth)
 	m.responseTestsModel.SetHeight(viewportHeight)
 	m.responseSearchInput.SetWidth(max(10, innerPromptWidth(mainWidth)))
+	m.responseFilterInput.SetWidth(max(10, innerPromptWidth(mainWidth)))
 	m.responseSaveInput.SetWidth(max(10, innerPromptWidth(mainWidth)))
 	m.collectionRenameInput.SetWidth(max(10, historyWidth-11))
 	m.environmentNameInput.SetWidth(max(10, mainWidth-28))
@@ -1766,30 +1902,53 @@ func (m model) View() tea.View {
 	layout := lipgloss.JoinHorizontal(lipgloss.Top, historySection, rightCol)
 
 	helpView := helpStyle.Render(m.help.ShortHelpView([]key.Binding{
-		m.keymap.next,
-		m.keymap.prev,
+		m.keymap.showHelp,
 		m.keymap.movePane,
-		m.keymap.cycleMethod,
-		m.keymap.editMethod,
+		m.keymap.next,
 		m.keymap.send,
-		m.keymap.cancel,
-		m.keymap.connect,
-		m.keymap.save,
-		m.keymap.saveExample,
-		m.keymap.exportCurl,
-		m.keymap.exportResponse,
 		m.keymap.collections,
-		m.keymap.settings,
-		m.keymap.environment,
 		m.keymap.quit,
 	}))
 
 	content := zone.Scan(layout + "\n" + helpView)
+	if m.requestLoadConfirmOpen {
+		content = m.viewRequestLoadConfirmation(content)
+	}
 	if m.quitConfirmOpen {
 		content = m.viewQuitConfirmation(content)
 	}
+	if m.helpOverlayOpen {
+		content = m.viewHelpOverlay(content)
+	}
 	v.SetContent(content)
 	return v
+}
+
+func (m model) viewRequestLoadConfirmation(content string) string {
+	viewportWidth := max(1, m.width)
+	viewportHeight := max(1, m.height)
+	modal := requestLoadConfirmationModal(viewportWidth)
+	modalWidth, modalHeight := lipgloss.Size(modal)
+	x := max(0, (viewportWidth-modalWidth)/2)
+	y := max(0, (viewportHeight-modalHeight)/2)
+
+	return lipgloss.NewCompositor(
+		lipgloss.NewLayer(content),
+		lipgloss.NewLayer(modal).X(x).Y(y).Z(1),
+	).Render()
+}
+
+func requestLoadConfirmationModal(viewportWidth int) string {
+	modalInnerWidth := min(50, max(10, viewportWidth-6))
+	rowWidth := modalInnerWidth + 4
+	row := func(style lipgloss.Style, content string) string {
+		return style.Width(rowWidth).Align(lipgloss.Center).Render(content)
+	}
+	message := row(quitModalTitleStyle, "Discard unsaved request changes?") + "\n" +
+		row(quitModalBodyStyle, " ") + "\n" +
+		row(quitModalBodyStyle, "Load the selected item and replace the current draft?") + "\n" +
+		row(quitModalHintStyle, "Enter/y to discard • Esc/n to keep editing")
+	return quitModalStyle.Render(message)
 }
 
 func (m model) viewQuitConfirmation(content string) string {
@@ -1841,4 +2000,9 @@ func formatHeaders(h http.Header) string {
 		}
 	}
 	return b.String()
+}
+
+func (m *model) setResponseHeaders(headers string) {
+	m.responseHeaders = headers
+	m.responseHeadersModel.SetContent(sanitizeTerminalText(headers))
 }

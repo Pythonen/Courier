@@ -517,7 +517,7 @@ func grpcSuccess(requestID uuid.UUID, endpoint grpcEndpoint, assertions []header
 	httpHeaders := grpcResponseHeaders(headers, trailers)
 	results := evaluateAssertions(assertions, assertionResponse{status: http.StatusOK, headers: httpHeaders, body: body, duration: elapsed, size: len(body)})
 	return responseMsg{
-		requestID: requestID, responseBody: string(body), responseRaw: string(body), responseRawAvailable: true,
+		requestID: requestID, responseBody: formatResponseBody(body, "application/json"), responseRaw: string(body), responseRawAvailable: true,
 		responseHeaders: formatHeaders(httpHeaders), responseMeta: fmt.Sprintf("gRPC OK • %s • %s", elapsed.Round(time.Millisecond), formatByteCount(len(body))),
 		statusCode: http.StatusOK, duration: elapsed, responseBytes: len(body), finalURL: grpcURL(endpoint),
 		assertionResults: results, variableUpdates: successfulVariableUpdates(assertions, results),
@@ -535,7 +535,7 @@ func grpcRPCFailure(requestID uuid.UUID, endpoint grpcEndpoint, assertions []hea
 	httpHeaders := grpcResponseHeaders(headers, trailers)
 	body := []byte(fmt.Sprintf("gRPC %s: %v", code, err))
 	return responseMsg{
-		requestID: requestID, responseBody: string(body), responseHeaders: formatHeaders(httpHeaders),
+		requestID: requestID, responseBody: sanitizeTerminalText(string(body)), responseHeaders: formatHeaders(httpHeaders),
 		responseMeta: fmt.Sprintf("gRPC %s • %s", code, elapsed.Round(time.Millisecond)), duration: elapsed,
 		responseBytes: len(body), finalURL: grpcURL(endpoint),
 		assertionResults: unavailableAssertionResults(assertions, "gRPC call did not complete successfully"),
@@ -550,7 +550,7 @@ func grpcFailure(requestID uuid.UUID, finalURL string, assertions []headerEntry,
 	if errors.Is(err, context.Canceled) {
 		meta = "Cancelled • " + elapsed.Round(time.Millisecond).String()
 	}
-	return responseMsg{requestID: requestID, responseBody: "Error: " + err.Error(), responseMeta: meta, duration: elapsed, finalURL: finalURL, assertionResults: unavailableAssertionResults(assertions, "request did not produce a response")}
+	return responseMsg{requestID: requestID, responseBody: sanitizeTerminalText("Error: " + err.Error()), responseMeta: meta, duration: elapsed, finalURL: finalURL, assertionResults: unavailableAssertionResults(assertions, "request did not produce a response")}
 }
 
 func grpcResponseHeaders(headers, trailers metadata.MD) http.Header {

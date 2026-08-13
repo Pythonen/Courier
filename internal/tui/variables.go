@@ -26,7 +26,9 @@ type variableResolver struct {
 }
 
 func newVariablesTable() headersTable {
-	return newKeyValueTable("Variable", "Value", "variable-name", "value")
+	table := newKeyValueTable("Variable", "Value", "variable-name", "value")
+	table.maskAllValues = true
+	return table
 }
 
 func (m *model) ensureEnvironmentProfiles() {

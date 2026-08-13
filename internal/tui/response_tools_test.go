@@ -220,6 +220,149 @@ func TestSaveActiveResponseUsesSelectedTabAndVariables(t *testing.T) {
 	}
 }
 
+func TestResponseExportSurvivesWorkspaceSaveFailureOnFocusChange(t *testing.T) {
+	initTestZones()
+	dir := t.TempDir()
+	regularFile := filepath.Join(dir, "regular-file")
+	if err := os.WriteFile(regularFile, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	m := NewModel()
+	m.workspacePath = filepath.Join(regularFile, "workspace.json")
+	m.settingsOpen = true
+	m.response = "original non-raw response"
+	m.responseMeta = "200 OK"
+	m.responseModel.SetContent(m.response)
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
+	m = updated.(model)
+	updated, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	m = updated.(model)
+	mainWidth, _, _, responseHeight := layoutDimensions(m.width, m.height)
+	m.responseSaveInput.SetValue(strings.Repeat("very/long/export/path/", 12))
+	m.responseSaveInput.CursorEnd()
+	if !m.responseSaveOpen || m.response != "original non-raw response" || m.responseModel.GetContent() != "original non-raw response" {
+		t.Fatalf("response export prompt lost content: open=%v response=%q viewport=%q", m.responseSaveOpen, m.response, m.responseModel.GetContent())
+	}
+	if m.responseMeta != "200 OK" || !strings.Contains(m.workspaceSaveStatus, "Workspace save failed") {
+		t.Fatalf("response metadata/status = %q / %q", m.responseMeta, m.workspaceSaveStatus)
+	}
+	if rendered := ansi.Strip(m.viewResponse(mainWidth, responseHeight)); !strings.Contains(rendered, "Workspace save failed") {
+		t.Fatalf("response export prompt hid workspace failure: %q", rendered)
+	}
+
+	path := filepath.Join(dir, "response.txt")
+	m.responseSaveInput.SetValue(path)
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = updated.(model)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "original non-raw response" {
+		t.Fatalf("exported response = %q, want original content", data)
+	}
+	if rendered := ansi.Strip(m.viewResponse(mainWidth, responseHeight)); !strings.Contains(rendered, "Workspace save failed") {
+		t.Fatalf("response export success hid workspace failure: %q", rendered)
+	}
+}
+
+func TestCurlGenerationSurvivesWorkspaceSaveFailureOnFocusChange(t *testing.T) {
+	initTestZones()
+	regularFile := filepath.Join(t.TempDir(), "regular-file")
+	if err := os.WriteFile(regularFile, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	m := NewModel()
+	m.workspacePath = filepath.Join(regularFile, "workspace.json")
+	m.settingsOpen = true
+	m.urlInput.SetValue("https://example.com/generated")
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl})
+	m = updated.(model)
+	if !strings.Contains(m.response, "curl") || !strings.Contains(m.response, "https://example.com/generated") || strings.Contains(m.response, "workspace changed on disk") {
+		t.Fatalf("generated cURL was replaced by workspace failure: %q", m.response)
+	}
+	if m.responseMeta != "cURL command generated" || !strings.Contains(m.workspaceSaveStatus, "Workspace save failed") {
+		t.Fatalf("cURL metadata/status = %q / %q", m.responseMeta, m.workspaceSaveStatus)
+	}
+	if rendered := ansi.Strip(m.viewResponse(120, 12)); !strings.Contains(rendered, "Workspace save failed") {
+		t.Fatalf("generated cURL hid workspace failure: %q", rendered)
+	}
+}
+
+func TestReceivedResponseSurvivesWorkspaceSaveFailure(t *testing.T) {
+	initTestZones()
+	regularFile := filepath.Join(t.TempDir(), "regular-file")
+	if err := os.WriteFile(regularFile, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	m := NewModel()
+	m.workspacePath = filepath.Join(regularFile, "workspace.json")
+	m.history = []historyItem{{requestID: m.requestId}}
+	updated, _ := m.Update(responseMsg{
+		requestID:       m.requestId,
+		responseBody:    "received response",
+		responseMeta:    "200 OK",
+		variableUpdates: []headerEntry{{key: "token", value: "fresh"}},
+	})
+	m = updated.(model)
+	if m.response != "received response" || m.responseModel.GetContent() != "received response" || m.responseMeta != "200 OK" {
+		t.Fatalf("workspace autosave clobbered response: body=%q viewport=%q metadata=%q", m.response, m.responseModel.GetContent(), m.responseMeta)
+	}
+	if len(m.history) != 1 || m.history[0].responseBody != "received response" {
+		t.Fatalf("workspace autosave lost in-memory history response: %#v", m.history)
+	}
+	if !strings.Contains(m.workspaceSaveStatus, "Workspace save failed") {
+		t.Fatalf("workspace autosave failure status = %q", m.workspaceSaveStatus)
+	}
+	if rendered := ansi.Strip(m.viewResponse(120, 12)); !strings.Contains(rendered, "Workspace save failed") {
+		t.Fatalf("received response hid workspace failure: %q", rendered)
+	}
+}
+
+func TestWorkspaceFailureStatusSanitizesControlPath(t *testing.T) {
+	initTestZones()
+	dir := t.TempDir()
+	maliciousName := "bad\n\x1b]52;c;payload\x07\u202e"
+	regularFile := filepath.Join(dir, maliciousName)
+	if err := os.WriteFile(regularFile, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	m := NewModel()
+	m.workspacePath = filepath.Join(regularFile, "workspace.json")
+	m.response = "original response"
+	m.responseMeta = "200 OK"
+	m.responseModel.SetContent(m.response)
+	if result := m.saveWorkspaceWithStatus(); result != workspaceSaveFailed {
+		t.Fatalf("workspace save result = %d, want failed", result)
+	}
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 500, Height: 24})
+	m = updated.(model)
+	mainWidth, _, _, responseHeight := layoutDimensions(m.width, m.height)
+	rendered := m.viewResponse(mainWidth, responseHeight)
+	plain := ansi.Strip(rendered)
+	if strings.Contains(rendered, "\x1b]52") || strings.Contains(rendered, "\x07") || strings.Contains(plain, "bad\n") {
+		t.Fatalf("workspace status contains live terminal controls: %q", plain)
+	}
+	for _, visible := range []string{`bad\n`, `\x1b]52;c;payload`, `\x07`, `\u202e`} {
+		if !strings.Contains(plain, visible) {
+			t.Fatalf("workspace status does not expose escaped %q: %q", visible, plain)
+		}
+	}
+	if m.response != "original response" || m.responseMeta != "200 OK" || m.responseModel.GetContent() != "original response" {
+		t.Fatalf("workspace failure clobbered response: body=%q meta=%q viewport=%q", m.response, m.responseMeta, m.responseModel.GetContent())
+	}
+
+	m.workspacePath = filepath.Join(dir, "workspace.json")
+	if result := m.saveWorkspaceWithStatus(); !result.succeeded() || m.workspaceSaveStatus != "" {
+		t.Fatalf("successful retry result/status = %d / %q", result, m.workspaceSaveStatus)
+	}
+}
+
 func TestResponsePromptsKeepPaneHeight(t *testing.T) {
 	initTestZones()
 	m := NewModel()
@@ -238,5 +381,15 @@ func TestResponsePromptsKeepPaneHeight(t *testing.T) {
 	m.responseSaveOpen = true
 	if got := lipgloss.Height(m.viewResponse(mainWidth, responseHeight)); got != want {
 		t.Fatalf("save changed response height: got %d want %d", got, want)
+	}
+	m.responseSaveInput.SetValue(strings.Repeat("long/path/", 20))
+	m.responseSaveInput.CursorEnd()
+	m.workspaceSaveStatus = "Workspace save failed\nnext line"
+	rendered := ansi.Strip(m.viewResponse(mainWidth, responseHeight))
+	if got := lipgloss.Height(m.viewResponse(mainWidth, responseHeight)); got != want {
+		t.Fatalf("workspace status changed response height: got %d want %d", got, want)
+	}
+	if !strings.Contains(rendered, `Workspace save failed\n`) || strings.Contains(rendered, "Workspace save failed\nnext line") {
+		t.Fatalf("workspace status was hidden or injected a row: %q", rendered)
 	}
 }

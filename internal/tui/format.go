@@ -18,15 +18,20 @@ func formatResponseBody(body []byte, contentType string) string {
 		contentType = strings.TrimSpace(contentType[:i])
 	}
 
+	// Pretty-print known formats while their source syntax is still intact.
+	// Sanitization below protects both unchanged input and parser output.
 	src := string(body)
-
-	// Pretty-print known formats before highlighting
 	switch contentType {
 	case "application/json", "text/json":
 		src = prettyJSON(src)
 	case "text/html":
 		src = prettyHTML(src)
 	}
+
+	// Parsers may decode textual representations back into terminal controls
+	// (for example, HTML numeric character references). Sanitize their output
+	// before Chroma adds its own trusted ANSI styling.
+	src = sanitizeTerminalText(src)
 
 	return highlight(src, contentType)
 }

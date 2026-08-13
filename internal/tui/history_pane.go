@@ -36,6 +36,7 @@ func (m *model) handleHistoryKeys(keyStr string) {
 			}
 		case "d":
 			if m.cookiePendingD && len(cookies) > 0 {
+				previousPos := m.cookiePos
 				if jar := m.persistentJar(); jar != nil {
 					jar.Delete(cookies[m.cookiePos])
 				}
@@ -43,11 +44,19 @@ func (m *model) handleHistoryKeys(keyStr string) {
 					m.cookiePos--
 				}
 				m.cookiePendingD = false
-				m.responseMeta = "Deleted stored cookie"
-				m.saveWorkspaceWithStatus()
+				saveResult := m.saveWorkspaceWithStatus()
+				if saveResult == workspaceSaveConflictHandled {
+					m.cookiePos = clampWorkspacePosition(previousPos, len(m.Cookies()))
+				} else if saveResult.succeeded() {
+					m.responseMeta = "Deleted stored cookie"
+				}
 			} else {
 				m.cookiePendingD = true
 			}
+			return
+		case "v":
+			m.cookiePendingD = false
+			m.cookieSecretsVisible = !m.cookieSecretsVisible
 			return
 		default:
 			m.cookiePendingD = false
@@ -70,12 +79,12 @@ func (m *model) handleHistoryKeys(keyStr string) {
 		case "enter":
 			m.examplePendingD = false
 			if len(refs) > 0 {
-				m.applySavedExample(refs[m.examplePos])
-				m.setFocus(paneResponse)
+				m.loadRequestOrConfirm(requestLoadTarget{kind: requestLoadExample, example: refs[m.examplePos]})
 			}
 			return
 		case "d":
 			if m.examplePendingD && len(refs) > 0 {
+				previousPos := m.examplePos
 				ref := refs[m.examplePos]
 				examples := m.savedRequests[ref.requestIndex].examples
 				m.savedRequests[ref.requestIndex].examples = append(examples[:ref.exampleIndex], examples[ref.exampleIndex+1:]...)
@@ -83,8 +92,12 @@ func (m *model) handleHistoryKeys(keyStr string) {
 					m.examplePos--
 				}
 				m.examplePendingD = false
-				m.responseMeta = "Deleted saved example"
-				m.saveWorkspaceWithStatus()
+				saveResult := m.saveWorkspaceWithStatus()
+				if saveResult == workspaceSaveConflictHandled {
+					m.examplePos = clampWorkspacePosition(previousPos, len(m.savedExampleRefs()))
+				} else if saveResult.succeeded() {
+					m.responseMeta = "Deleted saved example"
+				}
 			} else {
 				m.examplePendingD = true
 			}
@@ -101,9 +114,6 @@ func (m *model) handleHistoryKeys(keyStr string) {
 			return
 		default:
 			m.examplePendingD = false
-		}
-		if len(refs) > 0 {
-			m.applySavedExample(refs[m.examplePos])
 		}
 		return
 	}
@@ -124,13 +134,12 @@ func (m *model) handleHistoryKeys(keyStr string) {
 		case "enter":
 			m.collectionPendingD = false
 			if len(m.savedRequests) > 0 {
-				m.applySavedRequest(m.savedRequests[m.collectionPos])
-				m.activeSavedIndex = m.collectionPos
-				m.setFocus(paneURL)
+				m.loadRequestOrConfirm(requestLoadTarget{kind: requestLoadCollection, index: m.collectionPos})
 			}
 			return
 		case "d":
 			if m.collectionPendingD && len(m.savedRequests) > 0 {
+				previousPos := m.collectionPos
 				deleted := m.collectionPos
 				m.savedRequests = append(m.savedRequests[:m.collectionPos], m.savedRequests[m.collectionPos+1:]...)
 				if m.activeSavedIndex == deleted {
@@ -142,8 +151,12 @@ func (m *model) handleHistoryKeys(keyStr string) {
 					m.collectionPos--
 				}
 				m.collectionPendingD = false
-				m.responseMeta = "Deleted saved request"
-				m.saveWorkspaceWithStatus()
+				saveResult := m.saveWorkspaceWithStatus()
+				if saveResult == workspaceSaveConflictHandled {
+					m.collectionPos = clampWorkspacePosition(previousPos, len(m.savedRequests))
+				} else if saveResult.succeeded() {
+					m.responseMeta = "Deleted saved request"
+				}
 			} else {
 				m.collectionPendingD = true
 			}
@@ -160,6 +173,8 @@ func (m *model) handleHistoryKeys(keyStr string) {
 		case "c":
 			m.collectionPendingD = false
 			if len(m.savedRequests) > 0 {
+				previousPos := m.collectionPos
+				draftDirty := m.requestDraftDirty()
 				copyRequest := m.savedRequests[m.collectionPos].toWorkspace().fromWorkspace()
 				copyRequest.name = m.uniqueSavedRequestCopyName(copyRequest.name)
 				insertAt := m.collectionPos + 1
@@ -167,18 +182,24 @@ func (m *model) handleHistoryKeys(keyStr string) {
 				copy(m.savedRequests[insertAt+1:], m.savedRequests[insertAt:])
 				m.savedRequests[insertAt] = copyRequest
 				m.collectionPos = insertAt
-				m.activeSavedIndex = insertAt
-				m.applySavedRequest(copyRequest)
-				m.responseMeta = "Duplicated saved request"
-				m.saveWorkspaceWithStatus()
+				if draftDirty {
+					if m.activeSavedIndex >= insertAt {
+						m.activeSavedIndex++
+					}
+				} else {
+					m.activeSavedIndex = insertAt
+					m.applySavedRequest(copyRequest)
+				}
+				saveResult := m.saveWorkspaceWithStatus()
+				if saveResult == workspaceSaveConflictHandled {
+					m.collectionPos = clampWorkspacePosition(previousPos, len(m.savedRequests))
+				} else if saveResult.succeeded() {
+					m.responseMeta = "Duplicated saved request"
+				}
 			}
 			return
 		default:
 			m.collectionPendingD = false
-		}
-		if len(m.savedRequests) > 0 {
-			m.applySavedRequest(m.savedRequests[m.collectionPos])
-			m.activeSavedIndex = m.collectionPos
 		}
 		return
 	}
@@ -196,13 +217,18 @@ func (m *model) handleHistoryKeys(keyStr string) {
 		}
 	case "d":
 		if m.historyPendingD && len(m.history) > 0 {
+			previousPos := m.historyPos
 			m.history = append(m.history[:m.historyPos], m.history[m.historyPos+1:]...)
 			if m.historyPos >= len(m.history) && m.historyPos > 0 {
 				m.historyPos--
 			}
 			m.historyPendingD = false
-			m.responseMeta = "Deleted history entry"
-			m.saveWorkspaceWithStatus()
+			saveResult := m.saveWorkspaceWithStatus()
+			if saveResult == workspaceSaveConflictHandled {
+				m.historyPos = clampWorkspacePosition(previousPos, len(m.history))
+			} else if saveResult.succeeded() {
+				m.responseMeta = "Deleted history entry"
+			}
 		} else {
 			m.historyPendingD = true
 		}
@@ -210,15 +236,11 @@ func (m *model) handleHistoryKeys(keyStr string) {
 	case "enter":
 		m.historyPendingD = false
 		if len(m.history) > 0 {
-			m.applyHistoryItem(m.history[m.historyPos])
-			m.setFocus(paneURL)
+			m.loadRequestOrConfirm(requestLoadTarget{kind: requestLoadHistory, index: m.historyPos})
 		}
 		return
 	default:
 		m.historyPendingD = false
-	}
-	if len(m.history) > 0 {
-		m.applyHistoryItem(m.history[m.historyPos])
 	}
 }
 
@@ -237,13 +259,13 @@ func (m *model) applyHistoryItem(item historyItem) {
 	m.responseRaw = item.responseRaw
 	m.responseRawAvailable = item.responseRawAvailable
 	m.responseStatusCode = 0
-	m.responseHeaders = item.responseHeaders
+	m.setResponseHeaders(item.responseHeaders)
 	m.responseMeta = item.responseMeta
 	m.responseTests = item.responseTests
 	m.responseModel.SetContent(m.response)
-	m.responseHeadersModel.SetContent(m.responseHeaders)
 	m.responseTestsModel.SetContent(m.responseTests)
 	m.setMethodForURL(item.method, item.url)
+	m.markRequestDraftClean()
 }
 
 func (m model) viewHistory(contentHeight int) string {
@@ -279,7 +301,11 @@ func (m model) viewHistory(contentHeight int) string {
 		labelText = "Cookies"
 		position = m.cookiePos
 		for _, cookie := range m.Cookies() {
-			label := cookie.Domain + cookie.Path + " " + cookie.Name + "=" + cookie.Value
+			value := cookie.Value
+			if !m.cookieSecretsVisible {
+				value = maskedSecretValue(value)
+			}
+			label := cookie.Name + "=" + value + " " + cookie.Domain + cookie.Path
 			sidebarItems = append(sidebarItems, sidebarItem{method: "JAR", label: label})
 		}
 	default:
@@ -296,7 +322,11 @@ func (m model) viewHistory(contentHeight int) string {
 	} else if m.sidebarMode == sidebarExamples {
 		label += hintStyle.Render("  r dd")
 	} else if m.sidebarMode == sidebarCookies {
-		label += hintStyle.Render("  dd")
+		secretAction := "reveal"
+		if m.cookieSecretsVisible {
+			secretAction = "hide"
+		}
+		label += hintStyle.Render("  dd v:" + secretAction)
 	} else {
 		label += hintStyle.Render("  dd")
 	}

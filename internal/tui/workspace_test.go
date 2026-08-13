@@ -287,6 +287,11 @@ func TestCollectionControlsSaveAndLoadRequest(t *testing.T) {
 	m.setFocus(paneHistory)
 	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(model)
+	if !m.requestLoadConfirmOpen || m.urlInput.Value() != "https://changed.example.test" {
+		t.Fatalf("dirty draft was replaced without confirmation: open=%v url=%q", m.requestLoadConfirmOpen, m.urlInput.Value())
+	}
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = updated.(model)
 	if m.urlInput.Value() != "https://api.example.test/items" || methods[m.methodIdx] != "POST" {
 		t.Fatalf("loaded saved target = %s %s", methods[m.methodIdx], m.urlInput.Value())
 	}

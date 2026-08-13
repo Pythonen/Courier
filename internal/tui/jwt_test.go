@@ -51,7 +51,7 @@ func TestGenerateJWTHMACAlgorithms(t *testing.T) {
 			parts := strings.Split(token, ".")
 			header, _ := base64.RawURLEncoding.DecodeString(parts[0])
 			payload, _ := base64.RawURLEncoding.DecodeString(parts[1])
-			if !strings.Contains(string(header), `"alg":"`+algorithm+`"`) || !strings.Contains(string(header), `"kid":"one"`) || !strings.Contains(string(payload), `"sub":"courier"`) {
+			if !strings.Contains(string(header), `"alg":"`+algorithm+`"`) || !strings.Contains(string(header), `"kid":"one"`) || !strings.Contains(string(header), `"typ":"JWT"`) || !strings.Contains(string(payload), `"sub":"courier"`) {
 				t.Fatalf("JWT contents = header %s payload %s", header, payload)
 			}
 		})
@@ -192,6 +192,8 @@ func TestJWTRejectsInvalidConfiguration(t *testing.T) {
 		{jwtAlgorithm: "none", jwtKey: "secret", jwtPayload: `{}`},
 		{jwtAlgorithm: "HS256", jwtKey: "", jwtPayload: `{}`},
 		{jwtAlgorithm: "HS256", jwtKey: "secret", jwtPayload: `not-json`},
+		{jwtAlgorithm: "HS256", jwtKey: "secret", jwtPayload: `null`},
+		{jwtAlgorithm: "HS256", jwtKey: "secret", jwtPayload: `{}`, jwtHeaders: `null`},
 		{jwtAlgorithm: "HS256", jwtKey: "%%%", jwtSecretBase64: true, jwtPayload: `{}`},
 	} {
 		if _, err := generateJWT(config); err == nil {

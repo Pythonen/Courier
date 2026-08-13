@@ -14,10 +14,27 @@ Courier targets the local, terminal-feasible API-client portion of Postman. It i
 
 Built-in method presets are GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS, TRACE, COPY, LINK, UNLINK, PURGE, LOCK, UNLOCK, PROPFIND, and VIEW. Any valid custom HTTP method token can also be entered, imported, saved, rerun, mocked, and exported. Courier captures response cookies in a local persistent cookie jar and automatically sends matching cookies on later requests.
 
+## Quick start
+
+Install and launch Courier with a supported Go toolchain:
+
+```bash
+go install github.com/Pythonen/Courier/cmd/courier@latest
+courier
+```
+
+Paste or type an API URL, press `Ctrl+S` to send it, and use `Tab` / `Shift+Tab` to move between panes. Press `F1` at any time (or `?` from a normal-mode pane) for the complete keyboard guide.
+
+<p align="center">
+  <img src="./assets/courier-tui.png" alt="Courier request and response interface" width="900"/>
+</p>
+
 ## Table of contents
 
+- [Quick start](#quick-start)
 - [Run Courier](#run-courier)
   - [Install with Homebrew](#install-with-homebrew)
+  - [Install with Go](#install-with-go)
   - [Prerequisites](#prerequisites)
   - [Start directly](#start-directly)
   - [Or build a binary](#or-build-a-binary)
@@ -44,30 +61,39 @@ Upgrade an existing installation with `brew upgrade --cask courier`. Release
 maintainer setup and tagging instructions are in
 [`docs/RELEASING.md`](./docs/RELEASING.md).
 
+### Install with Go
+
+With a supported Go toolchain, install the latest release directly:
+
+```bash
+go install github.com/Pythonen/Courier/cmd/courier@latest
+courier
+```
+
 ### Prerequisites
 
-- Go 1.25+
+- Go 1.25.12 or newer
 
 ### Start directly
 
 ```bash
-go run ./cmd
+go run ./cmd/courier
 ```
 
 Courier loads and saves its local workspace at your operating system's user config directory (for example, `~/Library/Application Support/courier/workspace.json` on macOS). Use a different file when needed:
 
 ```bash
-go run ./cmd -workspace /path/to/workspace.json
+go run ./cmd/courier -workspace /path/to/workspace.json
 ```
 
 Inspect, manually add, or clear cookies in that workspace without opening the TUI:
 
 ```bash
-go run ./cmd -workspace ./courier-workspace.json -list-cookies
-go run ./cmd -workspace ./courier-workspace.json \
+go run ./cmd/courier -workspace ./courier-workspace.json -list-cookies
+go run ./cmd/courier -workspace ./courier-workspace.json \
   -cookie-url https://api.example.test/account \
   -set-cookie 'session=token; Path=/; Secure; HttpOnly'
-go run ./cmd -workspace ./courier-workspace.json -clear-cookies
+go run ./cmd/courier -workspace ./courier-workspace.json -clear-cookies
 ```
 
 `-set-cookie` accepts a standard `Set-Cookie` value. Domain, path, expiry, Secure, HttpOnly, SameSite, and host-only behavior are retained; expired cookies and server deletion cookies are removed. Cookie values are sensitive and are stored in the same owner-only (`0600`) workspace as credentials.
@@ -75,7 +101,7 @@ go run ./cmd -workspace ./courier-workspace.json -clear-cookies
 Import Postman Collection v2.x requests and environment values into a Courier workspace with:
 
 ```bash
-go run ./cmd -workspace ./courier-workspace.json \
+go run ./cmd/courier -workspace ./courier-workspace.json \
   -import-postman ./collection.json \
   -import-postman-environment ./environment.json
 ```
@@ -85,7 +111,7 @@ Imports are merged into the local workspace before the TUI opens. Collection fol
 Export the local workspace back to offline Postman-compatible JSON files with:
 
 ```bash
-go run ./cmd -workspace ./courier-workspace.json \
+go run ./cmd/courier -workspace ./courier-workspace.json \
   -export-postman ./courier.postman_collection.json \
   -export-postman-environment ./courier.postman_environment.json
 ```
@@ -95,7 +121,7 @@ Collection export uses Postman Collection v2.1, retains folder paths, request bo
 Import Swagger 2.0 or OpenAPI 3.x JSON/YAML definitions with:
 
 ```bash
-go run ./cmd -workspace ./courier-workspace.json \
+go run ./cmd/courier -workspace ./courier-workspace.json \
   -import-openapi ./openapi.yaml
 ```
 
@@ -104,7 +130,7 @@ Courier creates one saved request per supported operation. It converts server an
 Import SOAP operations from a WSDL 1.1 document with:
 
 ```bash
-go run ./cmd -workspace ./courier-workspace.json -import-wsdl ./service.wsdl
+go run ./cmd/courier -workspace ./courier-workspace.json -import-wsdl ./service.wsdl
 ```
 
 Courier discovers service ports, SOAP 1.1 and SOAP 1.2 bindings, endpoint addresses, actions, input messages, and inline XML Schema fields. Each binding operation becomes a saved POST request with the correct SOAP content type, SOAPAction handling, and an editable XML envelope containing `{{field}}` placeholders. Generated SOAP requests use the same environments, authorization, TLS, runner, assertions, examples, and export features as other HTTP requests.
@@ -112,7 +138,7 @@ Courier discovers service ports, SOAP 1.1 and SOAP 1.2 bindings, endpoint addres
 Import every RPC in a local protobuf service definition with:
 
 ```bash
-go run ./cmd -workspace ./courier-workspace.json \
+go run ./cmd/courier -workspace ./courier-workspace.json \
   -import-proto ./proto/service.proto \
   -proto-path ./proto/vendor,./shared/proto \
   -grpc-server grpcs://api.example.test:7443
@@ -123,7 +149,7 @@ Courier compiles `.proto` files natively in Go, resolves multi-file imports from
 Import HTTP Archive 1.2 traffic captured by browsers and local proxies with:
 
 ```bash
-go run ./cmd -workspace ./courier-workspace.json -import-har ./capture.har
+go run ./cmd/courier -workspace ./courier-workspace.json -import-har ./capture.har
 ```
 
 Each HAR entry becomes a saved request with its method, URL, query, headers, cookies, and body. Captured responses become local saved examples, including base64-decoded response content, so they can be inspected or served by Courier's mock server.
@@ -131,7 +157,7 @@ Each HAR entry becomes a saved request with its method, URL, query, headers, coo
 Export the saved collection and its response examples back to HAR 1.2 with:
 
 ```bash
-go run ./cmd -workspace ./courier-workspace.json -export-har ./courier.har
+go run ./cmd/courier -workspace ./courier-workspace.json -export-har ./courier.har
 ```
 
 The export contains standard replayable HAR request and response fields. Courier-specific extension fields preserve authorization settings, structured body modes, assertions, original URL/parameter separation, and multiple named response examples across a Courier HAR round trip. Export refuses to overwrite an existing file and writes with owner-only permissions (`0600`).
@@ -139,10 +165,10 @@ The export contains standard replayable HAR request and response fields. Courier
 Import a cURL command directly or from a text file, and export a saved request by its one-based collection index or exact name:
 
 ```bash
-go run ./cmd -import-curl "curl https://api.example.com/users"
-go run ./cmd -import-curl-file ./request.curl
-go run ./cmd -export-curl 1
-go run ./cmd -export-httpie "Users / Create user"
+go run ./cmd/courier -import-curl "curl https://api.example.com/users"
+go run ./cmd/courier -import-curl-file ./request.curl
+go run ./cmd/courier -export-curl 1
+go run ./cmd/courier -export-httpie "Users / Create user"
 ```
 
 The cURL importer parses command text without executing a shell. It supports request methods, headers, Basic, Digest, and AWS Signature v4 auth, cookies, query strings, raw and URL-encoded data, multipart forms, binary files, and `--unix-socket`. Unix-socket requests export back to an executable cURL command using the same option. HTTPie export covers headers, query values, cookies, Basic and Digest auth, token placeholders, raw/form/multipart/binary/GraphQL bodies, and shell-safe quoting; Unix-socket requests explicitly direct you to the cURL exporter because stock HTTPie requires a plugin for that transport.
@@ -150,13 +176,13 @@ The cURL importer parses command text without executing a shell. It supports req
 Run the entire saved collection, one request, or a Postman folder path without opening the TUI:
 
 ```bash
-go run ./cmd -run all
-go run ./cmd -run 2 -iterations 10 -delay 250ms
-go run ./cmd -run "Users" -run-format json
-go run ./cmd -run all -data ./iterations.csv
-go run ./cmd -environment Production -run all
-go run ./cmd -run all -bail
-go run ./cmd -run all -run-format junit > courier-results.xml
+go run ./cmd/courier -run all
+go run ./cmd/courier -run 2 -iterations 10 -delay 250ms
+go run ./cmd/courier -run "Users" -run-format json
+go run ./cmd/courier -run all -data ./iterations.csv
+go run ./cmd/courier -environment Production -run all
+go run ./cmd/courier -run all -bail
+go run ./cmd/courier -run all -run-format junit > courier-results.xml
 ```
 
 The runner executes requests sequentially using the workspace environment and a shared cookie jar. `-data` accepts a CSV file with a header row or a JSON array of objects; each row becomes an iteration and overrides matching environment variables. `-iterations` repeats the complete data set, `-delay` pauses between requests, and `-bail` stops after the first request or assertion failure. Text output is human-readable, JSON exposes the structured result, and JUnit XML integrates with CI test-report viewers. Transport failures and HTTP 4xx/5xx responses are reported as failures and produce a non-zero process exit status. `Ctrl+C` or `SIGTERM` cancels a run.
@@ -164,8 +190,8 @@ The runner executes requests sequentially using the workspace environment and a 
 Serve saved response examples as an offline mock API with:
 
 ```bash
-go run ./cmd -mock 127.0.0.1:8080
-go run ./cmd -mock 127.0.0.1:8080 -mock-selector "Users"
+go run ./cmd/courier -mock 127.0.0.1:8080
+go run ./cmd/courier -mock 127.0.0.1:8080 -mock-selector "Users"
 ```
 
 The mock server matches HTTP method, path, wildcard `{{pathVariables}}`, and query values, then returns the closest saved example. Captured path and active environment variables are resolved in example headers and bodies. Use `X-Mock-Response-Name` or `X-Mock-Response-Code` to select a particular example. Set `X-Mock-Match-Request-Headers` to a comma-separated list of header names or `X-Mock-Match-Request-Body: true` to require those request details to match. The server binds only to the address you provide, runs entirely from the local workspace, and shuts down cleanly on `Ctrl+C` or `SIGTERM`.
@@ -173,7 +199,7 @@ The mock server matches HTTP method, path, wildcard `{{pathVariables}}`, and que
 ### Or build a binary
 
 ```bash
-go build -o courier ./cmd
+go build -o courier ./cmd/courier
 ./courier
 ```
 
@@ -181,6 +207,7 @@ go build -o courier ./cmd
 
 ### Global controls
 
+- `F1` or normal-mode `?`: open the complete keyboard guide
 - `Tab` / `Shift+Tab`: move between panes
 - `Ctrl+H` / `Ctrl+J` / `Ctrl+K` / `Ctrl+L`: move to the pane left / down / up / right
 - `Ctrl+O`: cycle request method
@@ -195,13 +222,16 @@ go build -o courier ./cmd
 - `Ctrl+G`: render the current request as a copyable cURL command in the response pane
 - `Ctrl+D`: save the active response body or headers to a new local file
 - `Ctrl+P`: cycle the sidebar through request history, the saved collection, saved response examples, and the persistent cookie jar
-- `Ctrl+C`: quit
+- `Ctrl+C` twice: confirm and quit; `Esc` cancels the confirmation
+
+Terminal multiplexers can claim `Ctrl+H/J/K/L` before Courier receives them. In tmux, `Tab` / `Shift+Tab` remains the reliable no-configuration fallback; Courier cannot react to a key that tmux has already consumed.
 
 ### Request editor
 
 - `Left` / `Right`: switch request tabs
 - `i` / `Esc`: enter or leave input mode
 - Headers and Params: `j`/`k` move rows, `h`/`l` move columns, `o` adds a row, and `dd` deletes one
+- `v`: reveal or remask sensitive authorization and table values; leaving the pane remasks them automatically
 - Authorization: `o` cycles No Auth, Bearer Token, JWT Bearer, Basic Auth, Digest Auth, API Key, AWS Signature v4, OAuth 2 Client Credentials, OAuth 2 Password Credentials, OAuth 2 Refresh Token, OAuth 2 Authorization Code, Hawk, NTLM, and OAuth 1.0; `Space` toggles API-key, JWT, and OAuth 1.0 placement between header and query
 - Cookies: add explicit request cookies with the same key-value controls used by Headers and Query
 - Tests: add declarative response assertions or `set.name` response-to-variable actions using the expression and expected/source columns
@@ -212,17 +242,17 @@ GraphQL mode provides separate query, variables JSON, and optional operation-nam
 
 ### Saved requests, examples, and history
 
-Inside the saved collection, use `j`/`k` to choose a request, `Enter` to load it, `r` to rename it, `c` to duplicate it, and `dd` to delete it. Names such as `Users / Create user` organize requests into folder paths and can be selected by folder name in the collection runner. Once a saved request is loaded, `Ctrl+W` updates it in place while preserving its name; duplicate it first when you want a “Save As” workflow. Saved requests preserve the method, URL, query parameters, headers, cookies, authorization, body configuration, and tests. Environment values and saved requests are written atomically to the workspace file, which Courier creates with owner-only permissions (`0600`). Since authorization values may contain secrets, treat that file as sensitive.
+Inside the saved collection, use `j`/`k` to choose a request, `Enter` to load it, `r` to rename it, `c` to duplicate it, and `dd` to delete it. Changing the selection does not replace the active draft; if loading another item would discard edits, Courier asks for confirmation first. Names such as `Users / Create user` organize requests into folder paths and can be selected by folder name in the collection runner. Once a saved request is loaded, `Ctrl+W` updates it in place while preserving its name; duplicate it first when you want a “Save As” workflow. Saved requests preserve the method, URL, query parameters, headers, cookies, authorization, body configuration, and tests. Environment values and saved requests are written atomically to the workspace file, which Courier creates with owner-only permissions (`0600`). Since authorization values may contain secrets, treat that file as sensitive.
 
 After sending a loaded collection request, press `Ctrl+Y` to attach the response as a named example. Cycle to the Examples sidebar with `Ctrl+P`; use `j`/`k` and `Enter` to inspect examples, `r` to rename one, and `dd` to delete it. Examples retain status, headers, raw and formatted bodies, survive request updates and duplication, and round-trip through Postman Collection v2.1 imports and exports.
 
 Request history is also stored locally in the workspace and restores both the request configuration and captured response. The newest 100 entries are retained, subject to a 25 MiB serialized-history cap. Use `j`/`k` and `Enter` to reopen an entry, or `dd` to delete it permanently. History may contain authorization values and response data, so it has the same sensitivity as saved requests.
 
-The Cookies request tab adds explicit cookies to that saved request. Matching cookies captured from HTTP, WebSocket, and Socket.IO responses are merged from the persistent workspace jar. Cycle the sidebar to Cookies to inspect them; use `j`/`k` and `dd` to delete an individual stored cookie. Session cookies are intentionally retained across Courier restarts so terminal collection runs can continue authenticated workflows; use `-clear-cookies` when you want a clean jar.
+The Cookies request tab adds explicit cookies to that saved request. Matching cookies captured from HTTP, WebSocket, and Socket.IO responses are merged from the persistent workspace jar. Cycle the sidebar to Cookies to inspect them; use `j`/`k`, `v`, and `dd` to select, temporarily reveal, or delete an individual stored cookie. Session cookies are intentionally retained across Courier restarts so terminal collection runs can continue authenticated workflows; use `-clear-cookies` when you want a clean jar.
 
 ### Transport and protocol usage
 
-Transport settings include redirect following, request timeout, HTTP protocol selection, a proxy URL and bypass list, TLS certificate verification, a custom PEM CA bundle, and mutual-TLS client credentials. Proxies support `http`, `https`, `socks4`, `socks4a`, `socks5`, and `socks5h` URLs; credentials can be included in the URL, and the comma-separated bypass list accepts hosts, domain suffixes, IP addresses, and CIDR ranges. SOCKS4A and SOCKS5H resolve target hostnames through the proxy, while SOCKS4 and SOCKS5 resolve them locally. Client credentials can be a PEM certificate/private-key pair or a modern PKCS#12 `.p12`/`.pfx` bundle with an optional passphrase. Press `p` in the settings pane to switch between Network and TLS pages. HTTP protocol selection supports Auto negotiation, forced HTTP/1.x, and forced HTTP/2; use `h`/`l` or `Space` on the HTTP version row, and verify the negotiated protocol in the response metadata. TLS verification remains enabled by default; PEM certificate and key paths must be configured together, and PEM and PFX identities are mutually exclusive. Paths, proxy fields, and the PFX passphrase support the same `{{environment}}` templates as requests. These settings are persisted in the owner-only local workspace and honored by HTTP, WebSocket, Socket.IO, gRPC, OAuth token acquisition, and the headless collection runner. MQTT uses a direct raw TCP broker connection and rejects proxy configuration explicitly. Treat the workspace as sensitive when it contains literal proxy credentials or a PFX passphrase.
+Transport settings include redirect following, request timeout, HTTP protocol selection, a proxy URL and bypass list, TLS certificate verification, a custom PEM CA bundle, and mutual-TLS client credentials. Proxies support `http`, `https`, `socks4`, `socks4a`, `socks5`, and `socks5h` URLs; credentials can be included in the URL, and the comma-separated bypass list accepts hosts, domain suffixes, IP addresses, and CIDR ranges. SOCKS4A and SOCKS5H resolve target hostnames through the proxy, while SOCKS4 and SOCKS5 resolve them locally. Client credentials can be a PEM certificate/private-key pair or a modern PKCS#12 `.p12`/`.pfx` bundle with an optional passphrase. Press `p` in the settings pane to switch between Network and TLS pages and `v` to temporarily reveal masked credentials. HTTP protocol selection supports Auto negotiation, forced HTTP/1.x, and forced HTTP/2; use `h`/`l` or `Space` on the HTTP version row, and verify the negotiated protocol in the response metadata. TLS verification remains enabled by default; PEM certificate and key paths must be configured together, and PEM and PFX identities are mutually exclusive. Paths, proxy fields, and the PFX passphrase support the same `{{environment}}` templates as requests. These settings are persisted in the owner-only local workspace and honored by HTTP, WebSocket, Socket.IO, gRPC, OAuth token acquisition, and the headless collection runner. MQTT uses a direct raw TCP broker connection and rejects proxy configuration explicitly. Treat the workspace as sensitive when it contains literal proxy credentials or a PFX passphrase.
 
 On macOS and Linux, Courier can send HTTP directly over a Unix domain socket using Postman's URL form: `http://unix:/absolute/path/to/service.sock:/resource`. The shorter `unix:/absolute/path/to/service.sock:/resource` form defaults to HTTP; use `https://unix:...` for TLS. Methods, query parameters, headers, bodies, auth, cookies, redirects, streaming, assertions, variables, history, saved requests, and collection runs work through the socket. A `Host` entry in the Headers tab controls the HTTP host when a daemon requires one.
 
@@ -256,7 +286,7 @@ OAuth 1.0 signs requests natively without an embedded scripting runtime. It supp
 
 Environment variables use `{{name}}` templates and are resolved in URLs, query parameters, headers, cookies, authorization, bodies, multipart fields, and file paths. Supported dynamic variables include `{{$guid}}`, `{{$randomUUID}}`, `{{$timestamp}}`, `{{$isoTimestamp}}`, and `{{$randomInt}}`.
 
-The environment editor supports multiple named local profiles. Press `p` to cycle profiles, `n` to create one, `r` to rename the active profile, and `dd` to delete it. Use `-environment NAME` to select a profile for collection runs or exports. Postman environment imports retain their environment name and become local profiles.
+The environment editor supports multiple named local profiles. Values are masked by default; press `v` to reveal them temporarily. Press `p` to cycle profiles, `n` to create one, `r` to rename the active profile, and `dd` to delete it. Use `-environment NAME` to select a profile for collection runs or exports. Postman environment imports retain their environment name and become local profiles.
 
 ### Response pane
 

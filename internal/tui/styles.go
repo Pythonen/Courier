@@ -68,4 +68,34 @@ var (
 	quitModalHintStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("241")).
 				Background(lipgloss.Color("235"))
+
+	helpModalStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("212")).
+			Background(lipgloss.Color("235")).
+			Padding(1, 2)
+
+	helpModalTitleStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("212")).
+				Background(lipgloss.Color("235")).
+				Align(lipgloss.Center)
+
+	helpModalSectionStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("99")).
+				Background(lipgloss.Color("235"))
+
+	helpModalKeyStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("212")).
+				Background(lipgloss.Color("235"))
+
+	helpModalBodyStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("252")).
+				Background(lipgloss.Color("235"))
+
+	helpModalHintStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("241")).
+				Background(lipgloss.Color("235"))
 )

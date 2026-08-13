@@ -42,6 +42,31 @@ func TestPersistentCookieJarRoundTripAttributesAndDeletion(t *testing.T) {
 	}
 }
 
+func TestPersistentCookieJarRestoresAndDeletesIPv6HostCookie(t *testing.T) {
+	target, err := url.Parse("https://[2001:db8::1]/account")
+	if err != nil {
+		t.Fatal(err)
+	}
+	jar := newPersistentCookieJar()
+	jar.SetCookies(target, []*http.Cookie{{Name: "session", Value: "ipv6-secret", Path: "/"}})
+	snapshot := jar.Snapshot()
+	if len(snapshot) != 1 || snapshot[0].Domain != "2001:db8::1" || !snapshot[0].HostOnly {
+		t.Fatalf("IPv6 cookie snapshot = %#v", snapshot)
+	}
+
+	restored := newPersistentCookieJar()
+	restored.Restore(snapshot)
+	cookies := restored.Cookies(target)
+	if len(cookies) != 1 || cookies[0].Name != "session" || cookies[0].Value != "ipv6-secret" {
+		t.Fatalf("restored IPv6 cookies = %#v", cookies)
+	}
+
+	restored.Delete(snapshot[0])
+	if cookies := restored.Cookies(target); len(cookies) != 0 {
+		t.Fatalf("deleted IPv6 cookie remained = %#v", cookies)
+	}
+}
+
 func TestPersistentCookieJarExpiresAndReplacesCookies(t *testing.T) {
 	jar := newPersistentCookieJar()
 	target, _ := url.Parse("http://example.test/")

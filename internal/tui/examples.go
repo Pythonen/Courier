@@ -28,7 +28,8 @@ func (m *model) saveCurrentResponseExample() error {
 	if m.response == "" && !m.responseRawAvailable {
 		return fmt.Errorf("send the request before saving an example")
 	}
-	request := &m.savedRequests[m.activeSavedIndex]
+	requestIndex := m.activeSavedIndex
+	request := &m.savedRequests[requestIndex]
 	name := strings.TrimSpace(strings.Split(m.responseMeta, "•")[0])
 	if name == "" {
 		name = "Response"
@@ -37,14 +38,27 @@ func (m *model) saveCurrentResponseExample() error {
 		}
 	}
 	name = uniqueExampleName(request.examples, name)
+	previousPos := m.examplePos
 	request.examples = append(request.examples, savedExample{
 		name: name, statusCode: m.responseStatusCode,
 		responseBody: m.response, responseRaw: m.responseRaw, responseRawAvailable: m.responseRawAvailable,
 		responseHeaders: m.responseHeaders, responseMeta: m.responseMeta,
 	})
+	previousExampleCount := len(request.examples) - 1
 	m.examplePos = len(m.savedExampleRefs()) - 1
+	saveResult := m.saveWorkspaceWithStatus()
+	if saveResult == workspaceSaveFailed && requestIndex < len(m.savedRequests) && len(m.savedRequests[requestIndex].examples) == previousExampleCount+1 {
+		m.savedRequests[requestIndex].examples = m.savedRequests[requestIndex].examples[:previousExampleCount]
+	}
+	if !saveResult.succeeded() {
+		m.examplePos = clampWorkspacePosition(previousPos, len(m.savedExampleRefs()))
+		errText := strings.TrimPrefix(m.workspaceSaveStatus, "Workspace save failed: ")
+		if errText == "" {
+			errText = "workspace save failed"
+		}
+		return fmt.Errorf("%s", errText)
+	}
 	m.responseSearchStatus = "Saved response example " + name
-	m.saveWorkspaceWithStatus()
 	return nil
 }
 
@@ -80,12 +94,11 @@ func (m *model) applySavedExample(ref savedExampleRef) {
 	m.response = example.responseBody
 	m.responseRaw = example.responseRaw
 	m.responseRawAvailable = example.responseRawAvailable
-	m.responseHeaders = example.responseHeaders
+	m.setResponseHeaders(example.responseHeaders)
 	m.responseMeta = example.responseMeta
 	m.responseStatusCode = example.statusCode
 	m.responseTests = "Saved example: " + example.name
 	m.responseModel.SetContent(m.response)
-	m.responseHeadersModel.SetContent(m.responseHeaders)
 	m.responseTestsModel.SetContent(m.responseTests)
 }
 

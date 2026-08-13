@@ -4,7 +4,9 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -60,6 +62,7 @@ type settingsPane struct {
 	config                 requestSettings
 	page                   settingsPage
 	cursor                 int
+	secretsVisible         bool
 	proxyInput             textinput.Model
 	proxyBypassInput       textinput.Model
 	caCertInput            textinput.Model
@@ -190,6 +193,16 @@ func (s *settingsPane) UpdateNormal(keyStr string) {
 		} else if s.page == settingsNetwork && s.cursor == 2 {
 			s.config.httpVersion = (s.config.httpVersion + 1) % httpVersionCount
 		}
+	case "v":
+		s.setSecretsVisible(!s.secretsVisible)
+	}
+}
+
+func (s *settingsPane) setSecretsVisible(visible bool) {
+	s.secretsVisible = visible
+	s.clientPFXPasswordInput.EchoMode = textinput.EchoPassword
+	if visible {
+		s.clientPFXPasswordInput.EchoMode = textinput.EchoNormal
 	}
 }
 
@@ -224,9 +237,10 @@ func (s *settingsPane) blurInputs() {
 func (s *settingsPane) Blur() {
 	s.blurInputs()
 	s.syncConfig()
+	s.setSecretsVisible(false)
 }
 
-func (s settingsPane) View() string {
+func (s settingsPane) View(heights ...int) string {
 	boolValue := func(value bool) string {
 		if value {
 			return activeCellStyle.Render("On")
@@ -250,11 +264,20 @@ func (s settingsPane) View() string {
 		if s.config.timeout == 0 {
 			timeoutValue = "no limit"
 		}
+		proxyView := s.proxyInput.View()
+		if !s.secretsVisible {
+			masked := maskProxyCredentials(s.proxyInput.Value())
+			if masked != s.proxyInput.Value() {
+				proxyInput := s.proxyInput
+				proxyInput.SetValue(masked)
+				proxyView = proxyInput.View()
+			}
+		}
 		rows = []string{
 			"Follow redirects: " + boolValue(s.config.followRedirects),
 			fmt.Sprintf("Timeout:          %s", timeoutValue),
 			"HTTP version:     " + activeCellStyle.Render(s.config.httpVersion.String()),
-			"Proxy:            " + s.proxyInput.View(),
+			"Proxy:            " + proxyView,
 			"Proxy bypass:     " + s.proxyBypassInput.View(),
 		}
 	}
@@ -267,8 +290,33 @@ func (s settingsPane) View() string {
 	}
 	header := headerStyle.Render(pageName) + hintStyle.Render("  p:page")
 	rows = append([]string{header}, rows...)
-	rows = append(rows, hintStyle.Render(" jk:move  space:toggle  hl:adjust  i:edit  ctrl+t:close"))
-	return strings.Join(rows, "\n")
+	secretAction := "reveal"
+	if s.secretsVisible {
+		secretAction = "hide"
+	}
+	rows = append(rows, hintStyle.Render(" jk:move  space:toggle  hl:adjust  i:edit  v:"+secretAction+" secrets  ctrl+t:close"))
+	height := len(rows)
+	if len(heights) > 0 {
+		height = heights[0]
+	}
+	return renderCursorViewport(rows, s.cursor+1, height)
+}
+
+func maskProxyCredentials(value string) string {
+	authorityStart := 0
+	if scheme := strings.Index(value, "://"); scheme >= 0 {
+		authorityStart = scheme + 3
+	}
+	authorityEnd := len(value)
+	if offset := strings.IndexAny(value[authorityStart:], "/?#"); offset >= 0 {
+		authorityEnd = authorityStart + offset
+	}
+	authority := value[authorityStart:authorityEnd]
+	at := strings.LastIndex(authority, "@")
+	if at < 0 {
+		return value
+	}
+	return value[:authorityStart] + maskedSecretValue(authority[:at]) + authority[at:]
 }
 
 func configuredClient(base *http.Client, settings requestSettings) (*http.Client, error) {
@@ -277,8 +325,11 @@ func configuredClient(base *http.Client, settings requestSettings) (*http.Client
 	}
 	client := *base
 	client.Timeout = settings.timeout
+	baseRedirectPolicy := client.CheckRedirect
 	if !settings.followRedirects {
 		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	} else {
+		client.CheckRedirect = secureRedirectPolicy(baseRedirectPolicy)
 	}
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
@@ -368,4 +419,62 @@ func configuredClient(base *http.Client, settings requestSettings) (*http.Client
 	}
 	client.Transport = transport
 	return &client, nil
+}
+
+func secureRedirectPolicy(basePolicy func(*http.Request, []*http.Request) error) func(*http.Request, []*http.Request) error {
+	return func(request *http.Request, via []*http.Request) error {
+		if len(via) == 0 {
+			return nil
+		}
+		previous := via[len(via)-1]
+		if strings.EqualFold(previous.URL.Scheme, "https") && !strings.EqualFold(request.URL.Scheme, "https") {
+			return fmt.Errorf("refusing insecure redirect from %s to %s", redirectOrigin(previous.URL), redirectOrigin(request.URL))
+		}
+		if redirectOrigin(previous.URL) != redirectOrigin(request.URL) {
+			stripCrossOriginRedirectHeaders(request.Header)
+		}
+		if basePolicy != nil {
+			return basePolicy(request, via)
+		}
+		if len(via) >= 10 {
+			return fmt.Errorf("stopped after 10 redirects")
+		}
+		return nil
+	}
+}
+
+func redirectOrigin(value *url.URL) string {
+	if value == nil {
+		return ""
+	}
+	scheme := strings.ToLower(value.Scheme)
+	port := value.Port()
+	if port == "" {
+		switch scheme {
+		case "http":
+			port = "80"
+		case "https":
+			port = "443"
+		}
+	}
+	return scheme + "://" + net.JoinHostPort(strings.ToLower(value.Hostname()), port)
+}
+
+func stripCrossOriginRedirectHeaders(headers http.Header) {
+	// Cross-origin redirects receive only ordinary content-negotiation headers.
+	// This protects arbitrary user-named API-key headers as well as conventional
+	// Authorization and Cookie fields.
+	allowed := map[string]bool{
+		"Accept":          true,
+		"Accept-Encoding": true,
+		"Accept-Language": true,
+		"Cache-Control":   true,
+		"Content-Type":    true,
+		"User-Agent":      true,
+	}
+	for name := range headers {
+		if !allowed[http.CanonicalHeaderKey(name)] {
+			headers.Del(name)
+		}
+	}
 }

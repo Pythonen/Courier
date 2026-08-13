@@ -265,6 +265,34 @@ func TestRunCollectionFailsSuccessfulHTTPResponseOnAssertion(t *testing.T) {
 	}
 }
 
+func TestRunReportMarksLowerBoundResponseSize(t *testing.T) {
+	report := RunReport{
+		Total:  1,
+		Passed: 1,
+		Results: []RunResult{{
+			Iteration:    1,
+			Index:        1,
+			Name:         "Large response",
+			Method:       "GET",
+			Status:       http.StatusOK,
+			Bytes:        maxAssertionResponseBody + 1,
+			BytesAtLeast: true,
+			Passed:       true,
+		}},
+	}
+
+	if formatted := FormatRunReport(report); !strings.Contains(formatted, ">64.0 MiB") {
+		t.Fatalf("lower-bound text report = %q", formatted)
+	}
+	encoded, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"bytes_at_least":true`) {
+		t.Fatalf("lower-bound JSON report = %s", encoded)
+	}
+}
+
 func TestRunCollectionSelectionAndValidation(t *testing.T) {
 	m := NewModel()
 	m.savedRequests = []savedRequest{

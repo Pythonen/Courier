@@ -14,11 +14,125 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"software.sslmate.com/src/go-pkcs12"
 )
+
+func TestConfiguredClientRejectsHTTPSDowngrade(t *testing.T) {
+	t.Parallel()
+
+	var destinationCalls atomic.Int32
+	destination := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		destinationCalls.Add(1)
+	}))
+	defer destination.Close()
+	source := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		http.Redirect(response, request, destination.URL, http.StatusFound)
+	}))
+	defer source.Close()
+
+	client, err := configuredClient(source.Client(), requestSettings{followRedirects: true, timeout: 3 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := http.NewRequest(http.MethodGet, source.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer secret")
+	request.Header.Set("X-Custom-API-Key", "secret")
+	response, err := client.Do(request)
+	if response != nil {
+		_ = response.Body.Close()
+	}
+	if err == nil || !strings.Contains(err.Error(), "refusing insecure redirect") {
+		t.Fatalf("HTTPS downgrade error = %v", err)
+	}
+	if destinationCalls.Load() != 0 {
+		t.Fatalf("downgrade destination received %d requests", destinationCalls.Load())
+	}
+}
+
+func TestConfiguredClientStripsCrossOriginHeaders(t *testing.T) {
+	t.Parallel()
+
+	received := make(chan http.Header, 1)
+	destination := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		received <- request.Header.Clone()
+		response.WriteHeader(http.StatusNoContent)
+	}))
+	defer destination.Close()
+	source := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		http.Redirect(response, request, destination.URL, http.StatusTemporaryRedirect)
+	}))
+	defer source.Close()
+
+	client, err := configuredClient(source.Client(), requestSettings{followRedirects: true, timeout: 3 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := http.NewRequest(http.MethodPost, source.URL, strings.NewReader("body"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer secret")
+	request.Header.Set("Cookie", "session=secret")
+	request.Header.Set("X-Custom-API-Key", "secret")
+	request.Header.Set("X-Trace-Secret", "secret")
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Content-Type", "application/json")
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+
+	headers := <-received
+	for _, name := range []string{"Authorization", "Cookie", "X-Custom-API-Key", "X-Trace-Secret", "Referer"} {
+		if value := headers.Get(name); value != "" {
+			t.Fatalf("cross-origin %s = %q", name, value)
+		}
+	}
+	if headers.Get("Accept") != "application/json" || headers.Get("Content-Type") != "application/json" {
+		t.Fatalf("safe redirect headers were not preserved: %#v", headers)
+	}
+}
+
+func TestConfiguredClientPreservesSameOriginHeaders(t *testing.T) {
+	t.Parallel()
+
+	received := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/start" {
+			http.Redirect(response, request, "/final", http.StatusFound)
+			return
+		}
+		received <- request.Header.Get("X-Custom-API-Key")
+		response.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client, err := configuredClient(server.Client(), requestSettings{followRedirects: true, timeout: 3 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := http.NewRequest(http.MethodGet, server.URL+"/start", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("X-Custom-API-Key", "same-origin-secret")
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if value := <-received; value != "same-origin-secret" {
+		t.Fatalf("same-origin API key = %q", value)
+	}
+}
 
 func TestDoRequest_CustomCAAndMutualTLS(t *testing.T) {
 	tempDir := t.TempDir()

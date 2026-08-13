@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -519,17 +520,56 @@ func TestDoRequest_Timeout(t *testing.T) {
 func TestDoRequest_ResponseBodyLimit(t *testing.T) {
 	t.Parallel()
 
+	body := strings.Repeat("x", maxResponseBody) + "tail=needle"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(strings.Repeat("x", maxResponseBody+1)))
+		_, _ = io.WriteString(w, body)
 	}))
 	defer srv.Close()
 
 	m := NewModel()
 	m.urlInput.SetValue(srv.URL)
+	m.testsInput.SetEntries([]headerEntry{
+		{key: "body.contains", value: "tail=needle"},
+		{key: "set.tail", value: `body.matches:tail=(\w+)$`},
+		{key: "size.lt", value: strconv.Itoa(len(body) + 1)},
+	})
 
 	resp := m.DoRequest()().(responseMsg)
 	if !strings.Contains(resp.responseBody, "exceeds the 10.0 MiB display limit") {
 		t.Fatalf("oversized response was not rejected, got: %q", resp.responseBody)
+	}
+	if resp.responseBytes != len(body) {
+		t.Fatalf("response size = %d, want %d", resp.responseBytes, len(body))
+	}
+	for _, result := range resp.assertionResults {
+		if !result.Passed {
+			t.Errorf("assertion against complete oversized response failed: %#v", result)
+		}
+	}
+	if len(resp.variableUpdates) != 1 || resp.variableUpdates[0] != (headerEntry{key: "tail", value: "needle"}) {
+		t.Fatalf("oversized response extraction updates = %#v", resp.variableUpdates)
+	}
+}
+
+func TestReadResponseBodyForAssertionsStopsAtLimitWithoutDraining(t *testing.T) {
+	reader := strings.NewReader("0123456789")
+	body, size, truncated, err := readResponseBodyForAssertions(reader, 4)
+	if err != nil {
+		t.Fatalf("read response: %v", err)
+	}
+	if string(body) != "0123" || size != 5 || !truncated {
+		t.Fatalf("body = %q, size = %d, truncated = %t", body, size, truncated)
+	}
+	if reader.Len() != 5 {
+		t.Fatalf("reader retained %d bytes, want 5 unread bytes", reader.Len())
+	}
+}
+
+func TestResponseMetaMarksLowerBoundSize(t *testing.T) {
+	resp := &http.Response{Status: "200 OK", Proto: "HTTP/1.1"}
+	meta := responseMetaWithSizeBound(resp, 25*time.Millisecond, maxAssertionResponseBody+1, true, "")
+	if !strings.Contains(meta, ">64.0 MiB") {
+		t.Fatalf("lower-bound response metadata = %q", meta)
 	}
 }
 

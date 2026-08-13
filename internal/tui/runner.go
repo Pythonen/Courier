@@ -29,6 +29,7 @@ type RunResult struct {
 	Status            int               `json:"status,omitempty"`
 	DurationMS        int64             `json:"duration_ms"`
 	Bytes             int               `json:"bytes"`
+	BytesAtLeast      bool              `json:"bytes_at_least,omitempty"`
 	Passed            bool              `json:"passed"`
 	Error             string            `json:"error,omitempty"`
 	Assertions        []AssertionResult `json:"assertions,omitempty"`
@@ -149,15 +150,16 @@ runLoop:
 				m.variablesInput.SetEntries(mergeHeaderEntries(m.variablesInput.Entries(), response.variableUpdates))
 			}
 			result := RunResult{
-				Iteration:  iteration,
-				Index:      index + 1,
-				Name:       request.displayName(),
-				Method:     request.method,
-				URL:        response.finalURL,
-				Status:     response.statusCode,
-				DurationMS: response.duration.Milliseconds(),
-				Bytes:      response.responseBytes,
-				Assertions: response.assertionResults,
+				Iteration:    iteration,
+				Index:        index + 1,
+				Name:         request.displayName(),
+				Method:       request.method,
+				URL:          response.finalURL,
+				Status:       response.statusCode,
+				DurationMS:   response.duration.Milliseconds(),
+				Bytes:        response.responseBytes,
+				BytesAtLeast: response.responseBytesAtLeast,
+				Assertions:   response.assertionResults,
 			}
 			if isGRPCURL(resolvedURL) {
 				result.Method = "GRPC"
@@ -329,7 +331,11 @@ func FormatRunReport(report RunReport) string {
 				status = "ERROR"
 			}
 		}
-		fmt.Fprintf(&output, "%s [%d.%d] %s  %s %s  %dms  %s\n", state, result.Iteration, result.Index, result.Name, result.Method, status, result.DurationMS, formatByteCount(result.Bytes))
+		size := formatByteCount(result.Bytes)
+		if result.BytesAtLeast && result.Bytes > 0 {
+			size = ">" + formatByteCount(result.Bytes-1)
+		}
+		fmt.Fprintf(&output, "%s [%d.%d] %s  %s %s  %dms  %s\n", state, result.Iteration, result.Index, result.Name, result.Method, status, result.DurationMS, size)
 		if result.Error != "" {
 			fmt.Fprintf(&output, "  %s\n", result.Error)
 		}
@@ -350,5 +356,5 @@ func FormatRunReport(report RunReport) string {
 		}
 	}
 	fmt.Fprintf(&output, "\n%d requests: %d passed, %d failed in %dms", report.Total, report.Passed, report.Failed, report.DurationMS)
-	return output.String()
+	return sanitizeTerminalText(output.String())
 }

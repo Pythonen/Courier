@@ -69,7 +69,9 @@ func newBinaryPathInput() textinput.Model {
 }
 
 func newFormTable() headersTable {
-	return newKeyValueTable("Field", "Value", "field", "value")
+	table := newKeyValueTable("Field", "Value", "field", "value")
+	table.maskSensitive = true
+	return table
 }
 
 func newMultipartTable() headersTable {
